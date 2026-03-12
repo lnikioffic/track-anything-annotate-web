@@ -4,12 +4,18 @@ import Annotator from "../components/annotation/Annotator";
 import { Button } from "../components/ui/Button";
 import { useImageAnnotationStore } from "../store/imageAnnotationStore";
 import {
+  previewService,
+  type AnnotationPrompt,
+} from "../services/previewService";
+import {
   Box,
   Crosshair,
   Download,
   ChevronLeft,
   ChevronRight,
   Plus,
+  Wand2,
+  Loader2,
 } from "lucide-react";
 import { cn } from "../lib/utils";
 
@@ -32,6 +38,10 @@ const PhotoAnnotation = () => {
     removeAnnotationsByImage,
     skipDeleteConfirm,
     setSkipDeleteConfirm,
+    maskImage,
+    setMaskImage,
+    getCurrentImageFile,
+    getCurrentImageSize,
   } = useImageAnnotationStore();
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -45,6 +55,8 @@ const PhotoAnnotation = () => {
   const [exportFormat, setExportFormat] = useState<
     "json" | "yolo" | "coco" | "voc"
   >("json");
+  const [isGeneratingMask, setIsGeneratingMask] = useState(false);
+  const [maskError, setMaskError] = useState("");
 
   const handleAddLabel = () => {
     const trimmed = newLabel.trim();
@@ -108,13 +120,112 @@ const PhotoAnnotation = () => {
     annotationsByLabel.set(a.label, (annotationsByLabel.get(a.label) || 0) + 1);
   });
 
-  const handleUpload = (files: File[]) => {
-    const urls = files.map((file) => URL.createObjectURL(file));
+  const handleUpload = async (file: File) => {
+    const url = URL.createObjectURL(file);
+
+    // Получаем размеры изображения
+    const size = await new Promise<{ width: number; height: number }>(
+      (resolve) => {
+        const img = new Image();
+        img.onload = () =>
+          resolve({ width: img.naturalWidth, height: img.naturalHeight });
+        img.src = url;
+      },
+    );
+
     if (images.length === 0) {
-      setImages(urls);
+      setImages([url], [file], [size]);
     } else {
-      urls.forEach((url) => addImage(url));
+      addImage(url, file, size);
     }
+  };
+
+  // Конвертация аннотаций в формат для preview сервиса
+  const convertAnnotationsToPrompt = (): AnnotationPrompt[] => {
+    const imageAnnotations = annotations.filter(
+      (a) => a.frameId === currentImageIndex,
+    );
+
+    // Получаем оригинальный размер изображения из store
+    const imageSize = getCurrentImageSize();
+    const originalWidth = imageSize?.width || 1920;
+    const originalHeight = imageSize?.height || 1080;
+
+    // Размер канваса
+    const canvasWidth = 800;
+    const canvasHeight = 600;
+
+    // Коэффициенты масштабирования
+    const scaleX = originalWidth / canvasWidth;
+    const scaleY = originalHeight / canvasHeight;
+
+    return imageAnnotations.map((ann) => {
+      if (ann.type === "rect") {
+        return {
+          class_name: ann.label,
+          prompt: {
+            mode: "box",
+            boxes: [
+              [
+                Math.round(ann.x * scaleX),
+                Math.round(ann.y * scaleY),
+                Math.round((ann.x + (ann.width || 0)) * scaleX),
+                Math.round((ann.y + (ann.height || 0)) * scaleY),
+              ],
+            ],
+          },
+        };
+      } else {
+        return {
+          class_name: ann.label,
+          prompt: {
+            mode: "point",
+            point_coords: [
+              [Math.round(ann.x * scaleX), Math.round(ann.y * scaleY)],
+            ],
+            point_labels: [1],
+          },
+        };
+      }
+    });
+  };
+
+  // Генерация маски через preview сервис
+  const handleGenerateMask = async () => {
+    const file = getCurrentImageFile();
+
+    if (!file) {
+      setMaskError("Файл изображения не найден");
+      return;
+    }
+
+    const annotationsPrompt = convertAnnotationsToPrompt();
+    if (annotationsPrompt.length === 0) {
+      setMaskError("Добавьте хотя бы одну аннотацию");
+      return;
+    }
+
+    setIsGeneratingMask(true);
+    setMaskError("");
+
+    try {
+      const response = await previewService.generateMaskPreview(
+        file,
+        annotationsPrompt,
+      );
+      setMaskImage(response.imageUrl);
+    } catch (err) {
+      setMaskError(
+        err instanceof Error ? err.message : "Ошибка генерации маски",
+      );
+    } finally {
+      setIsGeneratingMask(false);
+    }
+  };
+
+  // Очистка маски
+  const handleClearMask = () => {
+    setMaskImage(null);
   };
 
   const handleAddMoreImages = () => {
@@ -125,9 +236,7 @@ const PhotoAnnotation = () => {
     event: React.ChangeEvent<HTMLInputElement>,
   ) => {
     const files = Array.from(event.target.files || []);
-    if (files.length > 0) {
-      handleUpload(files);
-    }
+    files.forEach(handleUpload);
     event.target.value = "";
   };
 
@@ -142,7 +251,7 @@ const PhotoAnnotation = () => {
         <UploadZone
           label="Загрузить изображения (JPG, PNG)"
           accept={{ "image/*": [] }}
-          onUpload={(file) => addImage(URL.createObjectURL(file))}
+          onUpload={handleUpload}
           multiple
         />
       </div>
@@ -405,8 +514,54 @@ const PhotoAnnotation = () => {
             height={600}
             highlightedAnnotationId={highlightedAnnotationId}
             imageIndex={currentImageIndex}
+            maskImageUrl={maskImage}
           />
         </div>
+
+        {/* Панель управления маской */}
+        {imageAnnotations.length > 0 && (
+          <div className="bg-white rounded-lg shadow p-3 border flex items-center gap-4">
+            <Button
+              variant="default"
+              size="sm"
+              className="gap-2"
+              onClick={handleGenerateMask}
+              disabled={isGeneratingMask}
+            >
+              {isGeneratingMask ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Wand2 className="w-4 h-4" />
+              )}
+              {isGeneratingMask ? "Генерация..." : "Создать превью маски"}
+            </Button>
+
+            {maskImage && (
+              <>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-2"
+                  onClick={handleClearMask}
+                >
+                  Скрыть маску
+                </Button>
+                <span className="text-xs text-green-600 flex items-center gap-1">
+                  <div className="w-2 h-2 rounded-full bg-green-600" />
+                  Маска сгенерирована
+                </span>
+              </>
+            )}
+
+            {maskError && (
+              <span className="text-xs text-destructive">{maskError}</span>
+            )}
+
+            <div className="ml-auto text-xs text-muted-foreground">
+              Превью маски для первого кадра
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Диалог подтверждения удаления класса */}

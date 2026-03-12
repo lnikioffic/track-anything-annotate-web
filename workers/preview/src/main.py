@@ -2,6 +2,7 @@ import json
 from typing import Annotated
 
 import cv2
+import numpy as np
 from fastapi import FastAPI, File, Form, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from ml_core import (
@@ -43,21 +44,47 @@ def process_media(
     data = list(map(lambda x: AnnotationItem(**x), metadata))
     class_names, annotations_info = get_info_prompt(data)
 
-    import tempfile
-
     content = file.file.read()
 
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp:
-        tmp.write(content)
-        tmp_path = tmp.name
-    video = cv2.VideoCapture(tmp_path)
-    ret, frame = video.read()
-    video.release()
+    # Пробуем декодировать как изображение
+    # IMREAD_COLOR игнорирует альфа-канал и загружает только RGB
+    frame = cv2.imdecode(np.frombuffer(content, np.uint8), cv2.IMREAD_COLOR)
 
+    # Если не получилось, пробуем как видео
+    if frame is None:
+        import tempfile
+
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp:
+            tmp.write(content)
+            tmp_path = tmp.name
+        video = cv2.VideoCapture(tmp_path)
+        ret, frame = video.read()
+        video.release()
+        if not ret or frame is None:
+            raise ValueError("Не удалось декодировать файл как изображение или видео")
+
+    # Проверка на 4 канала (RGBA) и конвертация в 3 канала (RGB)
+    if frame.ndim == 3 and frame.shape[2] == 4:
+        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_RGBA2RGB)
+    elif frame.ndim == 3 and frame.shape[2] == 3:
+        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    elif frame.ndim == 2:
+        # Чёрно-белое изображение, конвертируем в RGB
+        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_GRAY2RGB)
+    else:
+        raise ValueError(f"Неподдерживаемый формат изображения: {frame.shape}")
+
+    # Создаём новый контроллер для каждого запроса
     segmenter = Segmenter(Sam2ModelSize.Large, "cpu")
     segmenter_controller = SamController(segmenter)
     segmenter_service = SegmentationService(segmenter_controller)
-    segmenter_service.sam_controller.set_image(frame)
+
+    # Загружаем изображение
+    segmenter_controller.set_image(frame_rgb)
+
+    if not segmenter_controller.is_set_image:
+        raise RuntimeError("Не удалось загрузить изображение в SAM контроллер")
+
     mask = segmenter_service.segment_objects(annotations_info)
 
     overley_mask = overlay_davis(frame, mask)

@@ -4,7 +4,20 @@ import UploadZone from "../components/UploadZone";
 import Annotator from "../components/annotation/Annotator";
 import { Button } from "../components/ui/Button";
 import { useStore } from "../store/annotationStore";
-import { Box, Crosshair, Play, Save, Download, Upload } from "lucide-react";
+import {
+  previewService,
+  type AnnotationPrompt,
+} from "../services/previewService";
+import {
+  Box,
+  Crosshair,
+  Play,
+  Save,
+  Download,
+  Upload,
+  Wand2,
+  Loader2,
+} from "lucide-react";
 import type { Annotation } from "../store/annotationStore";
 import {
   cn,
@@ -438,6 +451,12 @@ const VideoAnnotation = () => {
     removeAnnotationsByFrame,
     annotationType,
     setAnnotationType,
+    maskImage,
+    setMaskImage,
+    currentVideoFile,
+    setCurrentVideoFile,
+    firstFrameUrl,
+    setFirstFrameUrl,
   } = useStore();
 
   const [highlightedAnnotationId, setHighlightedAnnotationId] = React.useState<
@@ -447,10 +466,52 @@ const VideoAnnotation = () => {
   const [exportFormat, setExportFormat] = useState<
     "json" | "yolo" | "coco" | "voc"
   >("json");
+  const [isGeneratingMask, setIsGeneratingMask] = useState(false);
+  const [maskError, setMaskError] = useState("");
+  const [videoError, setVideoError] = useState<string | null>(null);
 
   const handleUpload = (file: File) => {
     const url = URL.createObjectURL(file);
     setFile(url, "video");
+    setCurrentVideoFile(file);
+    setFirstFrameUrl(null);
+    setVideoError(null);
+    setMaskImage(null);
+
+    // Извлекаем первый кадр из видео
+    const video = document.createElement("video");
+    video.src = url;
+    video.preload = "metadata";
+
+    video.addEventListener("loadedmetadata", () => {
+      // Устанавливаем время на 0.1 сек, чтобы избежать чёрного кадра в начале
+      video.currentTime = 0.1;
+    });
+
+    video.addEventListener("seeked", () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      const ctx = canvas.getContext("2d");
+      if (ctx && video.videoWidth > 0 && video.videoHeight > 0) {
+        ctx.drawImage(video, 0, 0);
+        const frameUrl = canvas.toDataURL("image/jpeg");
+        setFirstFrameUrl(frameUrl);
+        (window as any).__videoDimensions = {
+          width: video.videoWidth,
+          height: video.videoHeight,
+        };
+      } else {
+        setVideoError("Не удалось извлечь кадр из видео");
+      }
+    });
+
+    video.addEventListener("error", (e) => {
+      console.error("Video error:", e);
+      setVideoError("Не удалось загрузить видео");
+    });
+
+    video.load(); // Начинаем загрузку
   };
 
   // Проверка наличия аннотаций на текущем кадре
@@ -465,6 +526,95 @@ const VideoAnnotation = () => {
   const hasAnnotations = frameAnnotations.some(
     (a) => annotationType === null || a.type === annotationType,
   );
+
+  // Конвертация аннотаций в формат для preview сервиса
+  const convertAnnotationsToPrompt = (): AnnotationPrompt[] => {
+    // Получаем размеры видео из глобальной переменной
+    const videoDimensions = (window as any).__videoDimensions || {
+      width: 1920,
+      height: 1080,
+    };
+    const videoWidth = videoDimensions.width;
+    const videoHeight = videoDimensions.height;
+
+    // Размер канваса
+    const canvasWidth = 800;
+    const canvasHeight = 500;
+
+    const scaleX = videoWidth / canvasWidth;
+    const scaleY = videoHeight / canvasHeight;
+
+    return frameAnnotations.map((ann) => {
+      if (ann.type === "rect") {
+        return {
+          class_name: ann.label,
+          prompt: {
+            mode: "box",
+            boxes: [
+              [
+                Math.round(ann.x * scaleX),
+                Math.round(ann.y * scaleY),
+                Math.round((ann.x + (ann.width || 0)) * scaleX),
+                Math.round((ann.y + (ann.height || 0)) * scaleY),
+              ],
+            ],
+          },
+        };
+      } else {
+        return {
+          class_name: ann.label,
+          prompt: {
+            mode: "point",
+            point_coords: [
+              [Math.round(ann.x * scaleX), Math.round(ann.y * scaleY)],
+            ],
+            point_labels: [1],
+          },
+        };
+      }
+    });
+  };
+
+  // Генерация маски через preview сервис (только для первого кадра)
+  const handleGenerateMask = async () => {
+    if (!currentVideoFile) {
+      setMaskError("Файл видео не найден");
+      return;
+    }
+
+    if (currentFrame !== 0) {
+      setMaskError("Превью маски доступно только для первого кадра");
+      return;
+    }
+
+    const annotationsPrompt = convertAnnotationsToPrompt();
+    if (annotationsPrompt.length === 0) {
+      setMaskError("Добавьте хотя бы одну аннотацию");
+      return;
+    }
+
+    setIsGeneratingMask(true);
+    setMaskError("");
+
+    try {
+      const response = await previewService.generateMaskPreview(
+        currentVideoFile,
+        annotationsPrompt,
+      );
+      setMaskImage(response.imageUrl);
+    } catch (err) {
+      setMaskError(
+        err instanceof Error ? err.message : "Ошибка генерации маски",
+      );
+    } finally {
+      setIsGeneratingMask(false);
+    }
+  };
+
+  // Очистка маски
+  const handleClearMask = () => {
+    setMaskImage(null);
+  };
 
   // Запуск трекинга с подтверждением
   const handleStartTracking = () => {
@@ -684,20 +834,74 @@ const VideoAnnotation = () => {
           </div>
         </div>
 
-        {/*
-            В реальности здесь нужно извлекать кадр из видео.
-            Для демо мы используем статичную картинку-заглушку,
-            эмулируя, что это "первый кадр" загруженного видео.
-        */}
+        {/* Первый кадр из видео */}
         <div className="flex-1 min-h-[500px] flex items-center justify-center border-2 border-dashed border-gray-300 rounded-lg bg-gray-200">
-          {/* Для демо используем заглушку картинки, в проде тут будет фрейм из видео */}
-          <Annotator
-            imageUrl="https://images.unsplash.com/photo-1568605117036-5fe5e7bab0b7?ixlib=rb-1.2.1&auto=format&fit=crop&w=1000&q=80"
-            width={800}
-            height={500}
-            highlightedAnnotationId={highlightedAnnotationId}
-          />
+          {videoError ? (
+            <div className="text-center text-destructive">
+              <p className="font-medium">{videoError}</p>
+              <p className="text-sm text-muted-foreground mt-1">
+                Попробуйте загрузить другое видео
+              </p>
+            </div>
+          ) : firstFrameUrl ? (
+            <Annotator
+              imageUrl={firstFrameUrl}
+              width={800}
+              height={500}
+              highlightedAnnotationId={highlightedAnnotationId}
+              maskImageUrl={currentFrame === 0 ? maskImage : null}
+            />
+          ) : (
+            <div className="text-center text-muted-foreground">
+              <p>Загрузите видео для начала разметки</p>
+            </div>
+          )}
         </div>
+
+        {/* Панель управления маской (только для первого кадра) */}
+        {currentFrame === 0 && frameAnnotations.length > 0 && (
+          <div className="bg-white rounded-lg shadow p-3 border flex items-center gap-4">
+            <Button
+              variant="default"
+              size="sm"
+              className="gap-2"
+              onClick={handleGenerateMask}
+              disabled={isGeneratingMask}
+            >
+              {isGeneratingMask ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Wand2 className="w-4 h-4" />
+              )}
+              {isGeneratingMask ? "Генерация..." : "Создать превью маски"}
+            </Button>
+
+            {maskImage && (
+              <>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-2"
+                  onClick={handleClearMask}
+                >
+                  Скрыть маску
+                </Button>
+                <span className="text-xs text-green-600 flex items-center gap-1">
+                  <div className="w-2 h-2 rounded-full bg-green-600" />
+                  Маска сгенерирована
+                </span>
+              </>
+            )}
+
+            {maskError && (
+              <span className="text-xs text-destructive">{maskError}</span>
+            )}
+
+            <div className="ml-auto text-xs text-muted-foreground">
+              Превью маски для первого кадра
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Диалог подтверждения запуска трекинга */}

@@ -22,6 +22,7 @@ interface AnnotatorProps {
   height: number;
   highlightedAnnotationId: string | null;
   imageIndex?: number; // для фото режима
+  maskImageUrl?: string | null; // URL маски для отображения поверх изображения
 }
 
 const Annotator: React.FC<AnnotatorProps> = ({
@@ -30,8 +31,10 @@ const Annotator: React.FC<AnnotatorProps> = ({
   height,
   highlightedAnnotationId,
   imageIndex,
+  maskImageUrl,
 }) => {
   const [image] = useImage(imageUrl);
+  const [maskImage] = useImage(maskImageUrl || "");
 
   // Определяем какой store использовать
   const isImageMode = imageIndex !== undefined;
@@ -166,7 +169,12 @@ const Annotator: React.FC<AnnotatorProps> = ({
         ref={stageRef}
       >
         <Layer>
-          <KonvaImage image={image} width={width} height={height} />
+          {/* Если есть маска, показываем её, иначе оригинальное изображение */}
+          <KonvaImage
+            image={maskImageUrl && maskImage ? maskImage : image}
+            width={width}
+            height={height}
+          />
 
           {visibleAnnotations.map((ann) => {
             const isHighlighted = highlightedAnnotationId === ann.id;

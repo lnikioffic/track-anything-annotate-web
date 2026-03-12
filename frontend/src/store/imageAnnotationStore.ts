@@ -3,6 +3,8 @@ import type { Annotation, ShapeType } from "./annotationStore";
 
 interface ImageAnnotationState {
   images: string[];
+  imageFiles: File[];
+  imageSizes: { width: number; height: number }[]; // Размеры изображений
   currentImageIndex: number;
   annotations: Annotation[];
   selectedLabel: string;
@@ -10,9 +12,18 @@ interface ImageAnnotationState {
   tool: ShapeType | "select";
   annotationType: ShapeType | null;
   skipDeleteConfirm: boolean;
+  maskImage: string | null;
 
-  setImages: (images: string[]) => void;
-  addImage: (image: string) => void;
+  setImages: (
+    images: string[],
+    files: File[],
+    sizes?: { width: number; height: number }[],
+  ) => void;
+  addImage: (
+    image: string,
+    file?: File,
+    size?: { width: number; height: number },
+  ) => void;
   setCurrentImageIndex: (index: number) => void;
   addAnnotation: (annotation: Annotation) => void;
   updateAnnotation: (id: string, data: Partial<Annotation>) => void;
@@ -24,6 +35,9 @@ interface ImageAnnotationState {
   addLabel: (label: string) => boolean;
   removeLabel: (label: string) => void;
   setSkipDeleteConfirm: (skip: boolean) => void;
+  setMaskImage: (imageUrl: string | null) => void;
+  getCurrentImageFile: () => File | null;
+  getCurrentImageSize: () => { width: number; height: number } | null;
   reset: () => void;
 }
 
@@ -33,6 +47,8 @@ const colors = ["#EF4444", "#3B82F6", "#10B981", "#F59E0B", "#8B5CF6"];
 export const useImageAnnotationStore = create<ImageAnnotationState>(
   (set, get) => ({
     images: [],
+    imageFiles: [],
+    imageSizes: [],
     currentImageIndex: 0,
     annotations: [],
     selectedLabel: "",
@@ -40,20 +56,39 @@ export const useImageAnnotationStore = create<ImageAnnotationState>(
     tool: "select",
     annotationType: null,
     skipDeleteConfirm: false,
+    maskImage: null,
 
-    setImages: (images) =>
+    setImages: (images, files, sizes) =>
       set({
         images,
+        imageFiles: files,
+        imageSizes: sizes || [],
         currentImageIndex: 0,
         annotations: [],
+        maskImage: null,
       }),
 
-    addImage: (image) =>
+    addImage: (image, file, size) =>
       set((state) => ({
         images: [...state.images, image],
+        imageFiles: file ? [...state.imageFiles, file] : state.imageFiles,
+        imageSizes: size ? [...state.imageSizes, size] : state.imageSizes,
       })),
 
-    setCurrentImageIndex: (index) => set({ currentImageIndex: index }),
+    setCurrentImageIndex: (index) =>
+      set({ currentImageIndex: index, maskImage: null }),
+
+    getCurrentImageFile: () => {
+      const state = get();
+      return state.imageFiles[state.currentImageIndex] || null;
+    },
+
+    getCurrentImageSize: () => {
+      const state = get();
+      return state.imageSizes[state.currentImageIndex] || null;
+    },
+
+    setMaskImage: (imageUrl) => set({ maskImage: imageUrl }),
 
     addAnnotation: (ann) =>
       set((state) => {
@@ -127,6 +162,8 @@ export const useImageAnnotationStore = create<ImageAnnotationState>(
     reset: () =>
       set({
         images: [],
+        imageFiles: [],
+        imageSizes: [],
         currentImageIndex: 0,
         annotations: [],
         selectedLabel: "",
@@ -134,6 +171,7 @@ export const useImageAnnotationStore = create<ImageAnnotationState>(
         tool: "select",
         annotationType: null,
         skipDeleteConfirm: false,
+        maskImage: null,
       }),
   }),
 );

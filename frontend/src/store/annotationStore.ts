@@ -28,6 +28,9 @@ interface AppState {
   isProcessing: boolean;
   skipDeleteConfirm: boolean;
   annotationType: ShapeType | null; // null = не выбран, только один тип может быть активен
+  maskImage: string | null;
+  currentVideoFile: File | null;
+  firstFrameUrl: string | null;
 
   setFile: (file: string, type: "video" | "image") => void;
   addAnnotation: (annotation: Annotation) => void;
@@ -43,6 +46,9 @@ interface AppState {
   removeLabel: (label: string) => void;
   setSkipDeleteConfirm: (skip: boolean) => void;
   startProcessing: () => void;
+  setMaskImage: (imageUrl: string | null) => void;
+  setCurrentVideoFile: (file: File | null) => void;
+  setFirstFrameUrl: (url: string | null) => void;
   reset: () => void;
 }
 
@@ -63,6 +69,9 @@ export const useStore = create<AppState>((set, get) => ({
   isProcessing: false,
   skipDeleteConfirm: false,
   annotationType: null,
+  maskImage: null,
+  currentVideoFile: null,
+  firstFrameUrl: null,
 
   setFile: (file, type) =>
     set({
@@ -72,6 +81,9 @@ export const useStore = create<AppState>((set, get) => ({
       processingProgress: 0,
       isProcessing: false,
       annotationType: null, // Сбрасываем тип аннотации при загрузке нового файла
+      maskImage: null,
+      currentVideoFile: null,
+      firstFrameUrl: null,
     }),
 
   addAnnotation: (ann) =>
@@ -168,6 +180,12 @@ export const useStore = create<AppState>((set, get) => ({
     }, 500); // Simulate backend processing
   },
 
+  setMaskImage: (imageUrl) => set({ maskImage: imageUrl }),
+
+  setCurrentVideoFile: (file) => set({ currentVideoFile: file }),
+
+  setFirstFrameUrl: (url) => set({ firstFrameUrl: url }),
+
   reset: () =>
     set({
       currentFile: null,
@@ -175,5 +193,8 @@ export const useStore = create<AppState>((set, get) => ({
       isProcessing: false,
       processingProgress: 0,
       annotationType: null,
+      maskImage: null,
+      currentVideoFile: null,
+      firstFrameUrl: null,
     }),
 }));
