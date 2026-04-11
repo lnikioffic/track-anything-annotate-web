@@ -12,6 +12,8 @@ dependencies = [
     "pydantic[email]>=2.12.5",
     "python-multipart>=0.0.22",
     "uvicorn>=0.41.0",
+    "torch>=2.10.0",
+    "torchvision>=0.25.0",
 ]
 
 [tool.uv.sources]

@@ -378,9 +378,9 @@ requires-dist = [
     { name = "psutil", specifier = ">=7.2.2" },
     { name = "sam-2", git = "https://github.com/facebookresearch/sam2.git" },
     { name = "torch", marker = "extra == 'cpu'", specifier = ">=2.10.0", index = "https://download.pytorch.org/whl/cpu", conflict = { package = "ml-core", extra = "cpu" } },
-    { name = "torch", marker = "extra == 'gpu'", specifier = ">=2.10.0", index = "https://download.pytorch.org/whl/cu130", conflict = { package = "ml-core", extra = "gpu" } },
+    { name = "torch", marker = "extra == 'gpu'", specifier = ">=2.10.0", index = "https://download.pytorch.org/whl/cu128", conflict = { package = "ml-core", extra = "gpu" } },
     { name = "torchvision", marker = "extra == 'cpu'", specifier = ">=0.25.0", index = "https://download.pytorch.org/whl/cpu", conflict = { package = "ml-core", extra = "cpu" } },
-    { name = "torchvision", marker = "extra == 'gpu'", specifier = ">=0.25.0", index = "https://download.pytorch.org/whl/cu130", conflict = { package = "ml-core", extra = "gpu" } },
+    { name = "torchvision", marker = "extra == 'gpu'", specifier = ">=0.25.0", index = "https://download.pytorch.org/whl/cu128", conflict = { package = "ml-core", extra = "gpu" } },
 ]
 provides-extras = ["cpu", "gpu"]
 
@@ -668,6 +668,8 @@ dependencies = [
     { name = "pydantic", extra = ["email"] },
     { name = "pydantic-settings" },
     { name = "python-multipart" },
+    { name = "torch" },
+    { name = "torchvision" },
     { name = "uvicorn" },
 ]
 
@@ -679,6 +681,8 @@ requires-dist = [
     { name = "pydantic", extras = ["email"], specifier = ">=2.12.5" },
     { name = "pydantic-settings", specifier = ">=2.13.1" },
     { name = "python-multipart", specifier = ">=0.0.22" },
+    { name = "torch", specifier = ">=2.10.0" },
+    { name = "torchvision", specifier = ">=0.25.0" },
     { name = "uvicorn", specifier = ">=0.41.0" },
 ]
 
