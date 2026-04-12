@@ -1,0 +1,20 @@
+**/.venv/
+venv/
+.git
+**/__pycache__/
+*.pyc
+
+ml_core/dist/
+*.log
+
+ml_core/assets/
+
+.vscode/
+.idea/
+*.pyo
+.ipynb_checkpoints/
+.env
+
+# README.md
+# Plan.md
+# LICENSE
