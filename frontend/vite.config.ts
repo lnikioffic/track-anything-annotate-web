@@ -3,23 +3,17 @@ import react from "@vitejs/plugin-react";
 
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [
-    react({
-      babel: {
-        plugins: [["babel-plugin-react-compiler"]],
-      },
-    }),
-  ],
-  // Проксирование API запросов на Gateway (Rust/Axum)
+  plugins: [react()],
   server: {
+    host: "0.0.0.0",
     proxy: {
       "/api": {
-        target: "http://localhost:8000",
+        target: "http://gateway:8080",
         changeOrigin: true,
-      },
-      "/ws": {
-        target: "ws://localhost:8000",
-        ws: true,
+        rewrite: (path) => path.replace(/^\/api/, ""),
+        // Для больших файлов (изображения/видео)
+        timeout: 120_000,
+        proxyTimeout: 120_000,
       },
     },
   },

@@ -1,9 +1,9 @@
 /**
- * Сервис для работы с preview worker (генерация маски по первому кадру)
+ * Сервис для работы с preview worker через gateway (генерация маски по первому кадру)
  */
 
-const PREVIEW_API_URL =
-  import.meta.env.VITE_PREVIEW_API_URL || "http://127.0.0.1:8000";
+// Относительный URL — проксируется через Vite dev server
+const PREVIEW_API_URL = "/api/v1/preview";
 
 export interface PointPrompt {
   mode: "point";
@@ -57,7 +57,7 @@ class PreviewServiceImpl {
     formData.append("file", file);
     formData.append("metadata", JSON.stringify(annotations));
 
-    const response = await fetch(`${PREVIEW_API_URL}/process`, {
+    const response = await fetch(PREVIEW_API_URL, {
       method: "POST",
       body: formData,
     });
