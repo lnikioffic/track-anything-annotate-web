@@ -10,7 +10,7 @@ pub async fn preview(mut multipart: Multipart) -> impl IntoResponse {
 
     while let Some(field) = multipart.next_field().await.unwrap() {
         let name = field.name().unwrap().to_string();
-        // let data = field.bytes().await.unwrap();
+
         match name.as_str() {
             "file" => {
                 file_name = field.file_name().unwrap_or("image.jpg").to_string();
@@ -26,7 +26,13 @@ pub async fn preview(mut multipart: Multipart) -> impl IntoResponse {
     let client = reqwest::Client::new();
 
     let form = multipart::Form::new()
-        .part("file", multipart::Part::bytes(file).file_name(file_name))
+        .part(
+            "file",
+            multipart::Part::bytes(file)
+                .file_name(file_name)
+                .mime_str("image/jpeg")
+                .unwrap(),
+        )
         .text("json_data", json_data);
 
     let response = client
