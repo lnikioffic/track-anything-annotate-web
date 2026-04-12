@@ -1,4 +1,5 @@
 import asyncio
+
 import numpy as np
 from ml_core import (
     Sam2ModelSize,

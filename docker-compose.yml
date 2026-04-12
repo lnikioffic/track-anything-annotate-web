@@ -18,3 +18,18 @@ services:
       - "8000:8000"
     environment:
       - DEVICE=cpu
+      
+    volumes:
+      - ./ml_core:/app/ml_core:ro
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "5173:5173"
+    environment:
+      - VITE_GATEWAY_URL=http://gateway:8080
+    depends_on:
+      - gateway
+

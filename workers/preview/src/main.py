@@ -57,7 +57,7 @@ async def preview(
     class_names, annotations_info = get_info_prompt(data)
 
     mask = state.segmenter.process_image(frame, annotations_info)
-
+    
     overlay_mask = overlay_davis(frame, mask)
     # cv2.imwrite("test_mask_result.png", overley_mask)
     success, encoded = cv2.imencode(".jpg", overlay_mask)
