@@ -35,9 +35,60 @@ export interface PreviewResponse {
   imageUrl: string;
 }
 
+/**
+ * Извлекает первый кадр из видеофайла и возвращает как Blob
+ */
+function extractFirstFrame(file: File): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const video = document.createElement("video");
+
+    video.onloadeddata = () => {
+      video.currentTime = 0;
+    };
+
+    video.onseeked = () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) {
+        reject(new Error("Failed to get canvas context"));
+        return;
+      }
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      URL.revokeObjectURL(url);
+
+      canvas.toBlob(
+        (blob) => {
+          if (blob) resolve(blob);
+          else reject(new Error("Failed to extract frame"));
+        },
+        "image/jpeg",
+        0.95,
+      );
+    };
+
+    video.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("Failed to load video"));
+    };
+
+    video.src = url;
+  });
+}
+
+/**
+ * Проверяет, является ли файл видео
+ */
+function isVideoFile(file: File): boolean {
+  return file.type.startsWith("video/");
+}
+
 class PreviewServiceImpl {
   /**
    * Генерация превью маски по первому кадру
+   * Если загружено видео — автоматически извлекается первый кадр
    * @param file - файл изображения или видео
    * @param annotations - массив аннотаций для генерации маски
    */
@@ -54,7 +105,15 @@ class PreviewServiceImpl {
     }
 
     const formData = new FormData();
-    formData.append("file", file);
+
+    // Если видео — извлекаем первый кадр, иначе отправляем как есть
+    if (isVideoFile(file)) {
+      const frameBlob = await extractFirstFrame(file);
+      formData.append("file", frameBlob, "frame.jpg");
+    } else {
+      formData.append("file", file);
+    }
+
     formData.append("metadata", JSON.stringify(annotations));
 
     const response = await fetch(PREVIEW_API_URL, {

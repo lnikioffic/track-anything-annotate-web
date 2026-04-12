@@ -56,8 +56,11 @@ async def preview(
         return Response(content="Failed to decode image", status_code=400)
     class_names, annotations_info = get_info_prompt(data)
 
-    mask = state.segmenter.process_image(frame, annotations_info)
-    
+    mask = await state.segmenter.process_image(frame, annotations_info)
+
+    # Конвертируем маску в правильный тип для overlay_davis
+    mask = mask.astype(np.int32)
+
     overlay_mask = overlay_davis(frame, mask)
     # cv2.imwrite("test_mask_result.png", overley_mask)
     success, encoded = cv2.imencode(".jpg", overlay_mask)
