@@ -38,13 +38,9 @@ async def preview(
     file: Annotated[UploadFile, File()],
     json_data: Annotated[str, Form()],
 ) -> Response:
-    print(f"Received file: {file.filename}, content_type: {file.content_type}")
-    allowed_types = ["image/jpeg", "image/png", "video/mp4"]
+    allowed_types = ["image/jpeg", "image/png"]
     if file.content_type not in allowed_types:
-        print(f"Unsupported media type: {file.content_type}")
-        return Response(
-            content=f"Unsupported media type: {file.content_type}", status_code=415
-        )
+        return Response(content="Unsupported media type", status_code=415)
 
     try:
         metadata = json.loads(json_data)
@@ -56,26 +52,12 @@ async def preview(
     nparr = np.frombuffer(contents, np.uint8)
     frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
 
-    # Если не получилось декодировать как изображение — пробуем как видео
     if frame is None:
-        import tempfile
-
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp:
-            tmp.write(contents)
-            tmp_path = tmp.name
-        video = cv2.VideoCapture(tmp_path)
-        ret, frame = video.read()
-        video.release()
-        if not ret or frame is None:
-            return Response(content="Failed to decode image or video", status_code=400)
-
+        return Response(content="Failed to decode image", status_code=400)
     class_names, annotations_info = get_info_prompt(data)
 
-    mask = await state.segmenter.process_image(frame, annotations_info)
-
-    # Убедимся что маска правильного типа для overlay_davis
-    mask = mask.astype(np.int32)
-
+    mask = state.segmenter.process_image(frame, annotations_info)
+    
     overlay_mask = overlay_davis(frame, mask)
     # cv2.imwrite("test_mask_result.png", overley_mask)
     success, encoded = cv2.imencode(".jpg", overlay_mask)
