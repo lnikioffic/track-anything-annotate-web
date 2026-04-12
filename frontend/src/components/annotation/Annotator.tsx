@@ -7,7 +7,6 @@ import {
   Image as KonvaImage,
   Text,
 } from "react-konva";
-import useImage from "use-image";
 import { useStore } from "../../store/annotationStore";
 import { useImageAnnotationStore } from "../../store/imageAnnotationStore";
 import { generateId } from "../../lib/utils";
@@ -33,8 +32,34 @@ const Annotator: React.FC<AnnotatorProps> = ({
   imageIndex,
   maskImageUrl,
 }) => {
-  const [image] = useImage(imageUrl);
-  const [maskImage] = useImage(maskImageUrl || "");
+  const [image, setImage] = useState<HTMLImageElement | null>(null);
+  const [maskImage, setMaskImage] = useState<HTMLImageElement | null>(null);
+
+  // Загружаем изображение
+  React.useEffect(() => {
+    if (!imageUrl) {
+      setImage(null);
+      return;
+    }
+
+    const img = new Image();
+    img.src = imageUrl;
+    img.onload = () => setImage(img);
+    img.onerror = () => setImage(null);
+  }, [imageUrl]);
+
+  // Загружаем маску
+  React.useEffect(() => {
+    if (!maskImageUrl) {
+      setMaskImage(null);
+      return;
+    }
+
+    const img = new Image();
+    img.src = maskImageUrl;
+    img.onload = () => setMaskImage(img);
+    img.onerror = () => setMaskImage(null);
+  }, [maskImageUrl]);
 
   // Определяем какой store использовать
   const isImageMode = imageIndex !== undefined;

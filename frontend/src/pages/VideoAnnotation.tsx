@@ -23,6 +23,7 @@ import {
   cn,
   exportAnnotationsToJson,
   importAnnotationsFromJson,
+  calculateScaleParams,
 } from "../lib/utils";
 
 // Компонент тулбара
@@ -478,23 +479,19 @@ const VideoAnnotation = () => {
     setVideoError(null);
     setMaskImage(null);
 
-    // Извлекаем первый кадр из видео
+    // Извлекаем первый кадр из видео (строго 0 секунда)
     const video = document.createElement("video");
     video.src = url;
-    video.preload = "metadata";
+    video.preload = "auto";
+    video.muted = true;
 
-    video.addEventListener("loadedmetadata", () => {
-      // Устанавливаем время на 0.1 сек, чтобы избежать чёрного кадра в начале
-      video.currentTime = 0.1;
-    });
-
-    video.addEventListener("seeked", () => {
+    const extractFrame = () => {
       const canvas = document.createElement("canvas");
       canvas.width = video.videoWidth;
       canvas.height = video.videoHeight;
       const ctx = canvas.getContext("2d");
       if (ctx && video.videoWidth > 0 && video.videoHeight > 0) {
-        ctx.drawImage(video, 0, 0);
+        ctx.drawImage(video, 0, 0, video.videoWidth, video.videoHeight);
         const frameUrl = canvas.toDataURL("image/jpeg");
         setFirstFrameUrl(frameUrl);
         (window as any).__videoDimensions = {
@@ -504,6 +501,20 @@ const VideoAnnotation = () => {
       } else {
         setVideoError("Не удалось извлечь кадр из видео");
       }
+    };
+
+    // Ждём загрузки данных и затем извлекаем кадр
+    video.addEventListener("loadeddata", () => {
+      // Проверяем готовность данных
+      if (video.readyState >= 2) {
+        extractFrame();
+      }
+    });
+
+    video.addEventListener("seeked", () => {
+      if (video.readyState >= 2) {
+        extractFrame();
+      }
     });
 
     video.addEventListener("error", (e) => {
@@ -511,7 +522,13 @@ const VideoAnnotation = () => {
       setVideoError("Не удалось загрузить видео");
     });
 
-    video.load(); // Начинаем загрузку
+    // Загружаем видео
+    video.load();
+
+    // После загрузки метаданных устанавливаем время строго на 0
+    video.addEventListener("loadedmetadata", () => {
+      video.currentTime = 0;
+    });
   };
 
   // Проверка наличия аннотаций на текущем кадре
@@ -541,6 +558,8 @@ const VideoAnnotation = () => {
     const canvasWidth = 800;
     const canvasHeight = 500;
 
+    // Простое масштабирование без letterbox
+    // Координаты с канваса масштабируются пропорционально размерам видео
     const scaleX = videoWidth / canvasWidth;
     const scaleY = videoHeight / canvasHeight;
 
@@ -632,11 +651,26 @@ const VideoAnnotation = () => {
 
   // Экспорт аннотаций в выбранном формате
   const handleExport = () => {
+    // Получаем размеры видео для масштабирования координат
+    const videoDimensions = (window as any).__videoDimensions || {
+      width: 1920,
+      height: 1080,
+    };
+
+    // Вычисляем параметры масштабирования (канвас 800x500 -> видео)
+    const scaleParams = calculateScaleParams(
+      800,
+      500,
+      videoDimensions.width,
+      videoDimensions.height,
+    );
+
     const json = exportAnnotationsToJson(
       annotations,
       currentFrame,
       annotationType,
       exportFormat,
+      scaleParams,
     );
     const blob = new Blob([json], { type: "application/json" });
     const url = URL.createObjectURL(blob);

@@ -155,7 +155,8 @@ const PhotoAnnotation = () => {
     const canvasWidth = 800;
     const canvasHeight = 600;
 
-    // Коэффициенты масштабирования
+    // Простое масштабирование без letterbox
+    // Координаты с канваса масштабируются пропорционально размерам изображения
     const scaleX = originalWidth / canvasWidth;
     const scaleY = originalHeight / canvasHeight;
 
