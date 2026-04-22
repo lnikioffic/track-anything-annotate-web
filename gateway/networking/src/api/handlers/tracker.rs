@@ -6,6 +6,7 @@ use serde::Serialize;
 use uuid::Uuid;
 
 use crate::{
+    api::schemas::Metadata,
     error::AppError,
     response::{AppResponse, ProgressResponse, TrackingAcceptedResponse},
     state::AppState,
@@ -25,8 +26,8 @@ pub async fn tracking(
 ) -> Result<AppResponse<TrackingAcceptedResponse>, AppError> {
     let task_id = Uuid::new_v4();
     let mut file: Bytes = Bytes::new();
-    let mut metadata = String::new();
-    let mut file_name = String::from("video.mp4");
+    let mut metadata: Option<String> = None;
+    let mut file_name = String::from("video1.mp4");
 
     while let Some(field) = multipart
         .next_field()
@@ -44,10 +45,12 @@ pub async fn tracking(
                     .map_err(|_| AppError::BadRequest("invalid file field"))?;
             }
             "metadata" => {
-                metadata = field
-                    .text()
-                    .await
-                    .map_err(|_| AppError::BadRequest("invalid metadata"))?;
+                metadata = Some(
+                    field
+                        .text()
+                        .await
+                        .map_err(|_| AppError::BadRequest("invalid metadata"))?,
+                );
             }
             _ => {}
         }
@@ -57,9 +60,16 @@ pub async fn tracking(
         return Err(AppError::BadRequest("file is required"));
     }
 
-    if metadata.trim().is_empty() {
-        return Err(AppError::BadRequest("metadata is required"));
-    }
+    let metadata: Metadata = match metadata {
+        Some(raw) => {
+            serde_json::from_str(&raw).map_err(|e| {
+                tracing::error!("Failed to parse metadata: {}", e);
+                AppError::BadRequest("invalid metadata")
+            })?
+        }
+        None => return Err(AppError::BadRequest("metadata is required")),
+    };
+    tracing::info!("metadata: {:?}", metadata);
 
     let storage_path = format!("/video/{task_id}_{file_name}");
     state
@@ -80,7 +90,7 @@ pub async fn tracking(
         task_id,
         storage_path: storage_path.clone(),
         file_name,
-        metadata,
+        metadata: serde_json::to_string(&metadata)?,
     };
     let payload = serde_json::to_vec(&payload)?;
 
