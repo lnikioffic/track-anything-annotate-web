@@ -44,7 +44,7 @@ async def preview(
 
     try:
         metadata = json.loads(json_data)
-        data = list(map(lambda x: AnnotationItem(**x), metadata))
+        items: list[AnnotationItem] = [AnnotationItem(**x) for x in metadata]
     except (json.JSONDecodeError, ValidationError) as e:
         return Response(content=f"Invalid JSON: {str(e)}", status_code=400)
 
@@ -54,7 +54,7 @@ async def preview(
 
     if frame is None:
         return Response(content="Failed to decode image", status_code=400)
-    class_names, annotations_info = get_info_prompt(data)
+    class_names, annotations_info = get_info_prompt(items)
 
     mask = await state.segmenter.process_image(frame, annotations_info)
 
@@ -67,5 +67,5 @@ async def preview(
 
     if not success:
         return Response(content="Failed to encode result", status_code=500)
-    print(data[0]["prompt"])
+    print(items[0]["prompt"])
     return Response(content=encoded.tobytes(), media_type="image/jpeg")
