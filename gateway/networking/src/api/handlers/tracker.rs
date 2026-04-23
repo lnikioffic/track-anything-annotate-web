@@ -61,15 +61,12 @@ pub async fn tracking(
     }
 
     let metadata: Metadata = match metadata {
-        Some(raw) => {
-            serde_json::from_str(&raw).map_err(|e| {
-                tracing::error!("Failed to parse metadata: {}", e);
-                AppError::BadRequest("invalid metadata")
-            })?
-        }
+        Some(raw) => serde_json::from_str(&raw).map_err(|e| {
+            tracing::error!("Failed to parse metadata: {}", e);
+            AppError::BadRequest("invalid metadata")
+        })?,
         None => return Err(AppError::BadRequest("metadata is required")),
     };
-    tracing::info!("metadata: {:?}", metadata);
 
     let storage_path = format!("/video/{task_id}_{file_name}");
     state

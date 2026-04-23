@@ -28,7 +28,7 @@ from .tools.contour_detector import (
 )
 from .tools.converter import colored_mask_to_indices, merge_masks
 from .tools.mask_display import mask_map, visualize_unique_mask, visualize_wb_mask
-from .tools.overlay_image import painter_borders, show_masks
+from .tools.overlay_image import painter_borders
 
 __all__ = [
     # Segmenter
@@ -55,5 +55,4 @@ __all__ = [
     "get_filtered_bboxes",
     "getting_coordinates",
     "painter_borders",
-    "show_masks",
 ]

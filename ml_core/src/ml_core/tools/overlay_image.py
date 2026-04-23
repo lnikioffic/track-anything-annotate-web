@@ -25,10 +25,13 @@ def show_mask(mask, ax, random_color=False, borders=True):
     mask = mask.astype(np.uint8)
     mask_image = mask.reshape(h, w, 1) * color.reshape(1, 1, -1)
     if borders:
-        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+        contours, _ = cv2.findContours(
+            mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE
+        )
         # Try to smooth contours
         contours = [
-            cv2.approxPolyDP(contour, epsilon=0.01, closed=True) for contour in contours
+            cv2.approxPolyDP(contour, epsilon=0.01, closed=True)
+            for contour in contours
         ]
         mask_image = cv2.drawContours(
             mask_image, contours, -1, (1, 1, 1, 0.5), thickness=2
@@ -42,19 +45,19 @@ def show_points(coords, labels, ax, marker_size=375):
     ax.scatter(
         pos_points[:, 0],
         pos_points[:, 1],
-        color="green",
-        marker="*",
+        color='green',
+        marker='*',
         s=marker_size,
-        edgecolor="white",
+        edgecolor='white',
         linewidth=1.25,
     )
     ax.scatter(
         neg_points[:, 0],
         neg_points[:, 1],
-        color="red",
-        marker="*",
+        color='red',
+        marker='*',
         s=marker_size,
-        edgecolor="white",
+        edgecolor='white',
         linewidth=1.25,
     )
 
@@ -63,7 +66,9 @@ def show_box(box, ax):
     x0, y0 = box[0], box[1]
     w, h = box[2] - box[0], box[3] - box[1]
     ax.add_patch(
-        plt.Rectangle((x0, y0), w, h, edgecolor="green", facecolor=(0, 0, 0, 0), lw=2)
+        plt.Rectangle(
+            (x0, y0), w, h, edgecolor='green', facecolor=(0, 0, 0, 0), lw=2
+        )
     )
 
 
@@ -87,6 +92,6 @@ def show_masks(
             # boxes
             show_box(box_coords, plt.gca())
         if len(scores) > 1:
-            plt.title(f"Mask {i + 1}, Score: {score:.3f}", fontsize=18)
-        plt.axis("off")
+            plt.title(f'Mask {i + 1}, Score: {score:.3f}', fontsize=18)
+        plt.axis('off')
         plt.show()

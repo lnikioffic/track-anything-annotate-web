@@ -39,6 +39,10 @@ def merge_masks(masks):
 
 def colored_mask_to_indices(mask):
     img_rgb = cv2.cvtColor(mask, cv2.COLOR_BGR2RGB)
-    colors, inverse = np.unique(img_rgb.reshape(-1, 3), axis=0, return_inverse=True)
+    colors, inverse = np.unique(
+        img_rgb.reshape(-1, 3),
+        axis=0,
+        return_inverse=True,
+    )
     mask_indices = inverse.reshape(img_rgb.shape[:2])
     return mask_indices, colors
