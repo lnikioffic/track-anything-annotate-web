@@ -1,35 +1,96 @@
 services:
-  gateway:
-    build:
-      context: ./gateway
-      dockerfile: Dockerfile
-    ports:
-      - "8080:8080"
-    environment:
-      - PREVIEW_WORKER_URL=http://preview-worker:8000
-    depends_on:
-      - preview-worker
+    gateway:
+        build:
+            context: ./gateway
+            dockerfile: Dockerfile
+        ports:
+            - "8080:8080"
+        environment:
+            - PREVIEW_WORKER_URL=${PREVIEW_WORKER_URL}
+            - YANDEX_DISK_TOKEN=${YANDEX_DISK_TOKEN}
+            - REDIS_URL=${REDIS_URL}
+            - RABBITMQ_URL=${RABBITMQ_URL}
+        depends_on:
+            preview-worker:
+                condition: service_healthy
+            valkey:
+                condition: service_healthy
+            rabbitmq:
+                condition: service_healthy
 
-  preview-worker:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    ports:
-      - "8000:8000"
-    environment:
-      - DEVICE=cpu
-      
-    volumes:
-      - ./ml_core:/app/ml_core:ro
+    preview-worker:
+        build:
+            context: .
+            dockerfile: Dockerfile
+        ports:
+            - "8000:8000"
+        environment:
+            - DEVICE=cpu
+        volumes:
+            - ./ml_core:/app/ml_core:ro
+        healthcheck:
+            test:
+                [
+                    "CMD",
+                    "python",
+                    "-c",
+                    "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')",
+                ]
+            interval: 10s
+            timeout: 5s
+            retries: 5
 
-  frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
-    ports:
-      - "5173:5173"
-    environment:
-      - VITE_GATEWAY_URL=http://gateway:8080
-    depends_on:
-      - gateway
+    # tracker-worker:
+    #     build:
+    #         context: .
+    #         dockerfile: workers/tracker/Dockerfile
+    #     environment:
+    #         - YANDEX_DISK_TOKEN=${YANDEX_DISK_TOKEN}
+    #         - REDIS_URL=${REDIS_URL}
+    #         - RABBITMQ_URL=${RABBITMQ_URL}
+    #     depends_on:
+    #         - rabbitmq
+    #         - valkey
 
+    frontend:
+        build:
+            context: ./frontend
+            dockerfile: Dockerfile
+        ports:
+            - "5173:5173"
+        environment:
+            - VITE_GATEWAY_URL=http://gateway:8080
+        depends_on:
+            - gateway
+
+    rabbitmq:
+        image: rabbitmq:4-management
+        ports:
+            - "5672:5672"
+            - "15672:15672"
+        environment:
+            - RABBITMQ_DEFAULT_USER=guest
+            - RABBITMQ_DEFAULT_PASS=guest
+        volumes:
+            - rabbitmq_data:/var/lib/rabbitmq
+        healthcheck:
+            test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+            interval: 10s
+            timeout: 5s
+            retries: 5
+
+    valkey:
+        image: valkey/valkey:8-alpine
+        ports:
+            - "6379:6379"
+        volumes:
+            - valkey_data:/data
+        healthcheck:
+            test: ["CMD", "valkey-cli", "ping"]
+            interval: 10s
+            timeout: 5s
+            retries: 5
+
+volumes:
+    rabbitmq_data:
+    valkey_data:
