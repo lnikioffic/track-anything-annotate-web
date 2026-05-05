@@ -16,6 +16,17 @@ dependencies = [
     "torchvision",
 ]
 
+[tool.ruff]
+# Ruff config: https://docs.astral.sh/ruff/settings
+preview = true
+fix = true
+target-version = "py313"
+line-length = 80
+
+[tool.ruff.format]
+quote-style = "single"
+docstring-code-format = true
+
 [tool.uv.sources]
 ml-core = { path = "../../ml_core", editable = true }
 torch = { index = "pytorch-cpu" }

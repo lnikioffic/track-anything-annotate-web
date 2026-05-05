@@ -159,3 +159,4 @@ assets/test_*.png
 
 build
 dist
+data/*.zip
