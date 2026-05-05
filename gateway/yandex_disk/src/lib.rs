@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use anyhow::{Context, Result, anyhow};
 use async_trait::async_trait;
 use bytes::Bytes;
@@ -26,14 +28,22 @@ struct DownloadLinkResponse {
 
 impl YandexDiskStorage {
     pub fn new(token: &str) -> Self {
+        let client = Client::builder()
+            .timeout(Duration::from_secs(300))
+            .pool_idle_timeout(Duration::from_secs(300))
+            .pool_max_idle_per_host(10)
+            .build()
+            .expect("Failed to create HTTP client");
         Self {
-            client: Client::new(),
+            client,
             token: token.to_string(),
         }
     }
 
     fn auth(&self, request: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
-        request.header("Authorization", format!("OAuth {}", self.token))
+        request
+            .header("Authorization", format!("OAuth {}", self.token))
+            .header("User-Agent", "Yandex.Disk {\"os\":\"windows\"}")
     }
 }
 

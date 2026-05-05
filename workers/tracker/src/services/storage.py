@@ -1,12 +1,32 @@
 import aiofiles
+import yadisk
 from aiohttp import ClientSession, ClientTimeout
 
 
-class YandexDiskStorage:
+class YndexDiskStorage:
+    def __init__(self, token: str) -> None:
+        self._client = yadisk.AsyncClient(token=token, session='aiohttp')
+
+    async def download(self, path: str, path_file: str):
+        async with aiofiles.open(f'{path_file}', 'wb') as f:
+            await self._client.download(path, f)
+
+    async def upload(self, path: str, path_file: str):
+        async with aiofiles.open(f'{path_file}', 'rb') as f:
+            await self._client.upload(f, path)
+
+    async def close(self):
+        await self._client.close()
+
+
+class YandexDiskStorageHTTP:
     API_BASE_URL = 'https://cloud-api.yandex.net/v1/disk/resources'
 
     def __init__(self, token: str) -> None:
-        self._headers = {'Authorization': f'OAuth {token}'}
+        self._headers = {
+            'Authorization': f'OAuth {token}',
+            'User-Agent': 'Yandex.Disk {"os":"windows"}',
+        }
         self._client = ClientSession(headers=self._headers)
 
     async def download(self, path: str, path_file: str):
@@ -24,9 +44,8 @@ class YandexDiskStorage:
                 async for chunk in resp.content.iter_chunked(1024 * 32):
                     await f.write(chunk)
 
-    async def upload(self, path, path_file):
+    async def upload(self, path: str, path_file: str):
         params = {'path': path, 'overwrite': 'true'}
-        print(path)
         async with self._client.get(
             f'{self.API_BASE_URL}/upload',
             params=params,
@@ -38,7 +57,6 @@ class YandexDiskStorage:
                 raise ValueError(f'No upload URL in response: {data}')
 
         upload_timeout = ClientTimeout(total=None, connect=30, sock_read=300)
-        print(upload_url)
         async with aiofiles.open(path_file, 'rb') as f:
             async with self._client.put(
                 upload_url,
