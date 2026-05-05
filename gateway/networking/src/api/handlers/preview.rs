@@ -1,9 +1,6 @@
 use std::sync::Arc;
 
-use axum::{
-    extract::{Multipart, State},
-    http::{HeaderMap, StatusCode},
-};
+use axum::extract::{Multipart, State};
 use reqwest::{header, multipart};
 
 use crate::{error::AppError, response::AppResponse, state::AppState};
@@ -60,12 +57,5 @@ pub async fn preview(
 
     let bytes = response.bytes().await?;
 
-    let mut headers = HeaderMap::new();
-    headers.insert(header::CONTENT_TYPE, content_type.parse().unwrap());
-
-    Ok(AppResponse::Binary {
-        status: StatusCode::OK,
-        headers,
-        body: bytes,
-    })
+    Ok(AppResponse::<()>::binary(bytes, &content_type))
 }

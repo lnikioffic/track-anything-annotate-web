@@ -1,6 +1,9 @@
 use std::sync::Arc;
 
-use axum::extract::{Multipart, Path, State};
+use axum::{
+    extract::{Multipart, Path, State},
+    http::{HeaderMap, StatusCode},
+};
 use bytes::Bytes;
 use serde::Serialize;
 use uuid::Uuid;
@@ -116,4 +119,30 @@ pub async fn checking_progress(
         task_id: id,
         status,
     }))
+}
+
+pub async fn download(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<Uuid>,
+) -> Result<AppResponse<()>, AppError> {
+    let storage_path = format!("/video/{id}.zip");
+    let bytes = state.storage.download(&storage_path).await?;
+
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        axum::http::header::CONTENT_TYPE,
+        "application/zip".parse().unwrap(),
+    );
+    headers.insert(
+        axum::http::header::CONTENT_DISPOSITION,
+        format!("attachment; filename=\"dataset_{}.zip\"", id)
+            .parse()
+            .unwrap(),
+    );
+
+    Ok(AppResponse::Binary {
+        status: StatusCode::OK,
+        headers,
+        body: bytes,
+    })
 }
