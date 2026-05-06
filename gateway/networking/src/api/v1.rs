@@ -1,10 +1,29 @@
-use axum::{Router, extract::DefaultBodyLimit, routing::post};
+use std::sync::Arc;
 
-use crate::api::handlers;
+use axum::{
+    Router,
+    extract::DefaultBodyLimit,
+    routing::{get, post},
+};
 
-pub fn config_preview() -> Router {
+use crate::{api::handlers, state::AppState};
+
+pub fn config_preview(state: Arc<AppState>) -> Router {
     Router::new()
-        .route("/preview", post(handlers::preview::preview))
-        .layer(DefaultBodyLimit::disable())
-        .layer(DefaultBodyLimit::max(250 * 1024 * 1024))
+        .merge(
+            Router::new()
+                .route("/preview", post(handlers::preview::preview))
+                .with_state(state.clone())
+                .layer(DefaultBodyLimit::disable())
+                .layer(DefaultBodyLimit::max(10 * 1024 * 1024)),
+        )
+        .merge(
+            Router::new()
+                .route("/progress/{id}", get(handlers::tracker::checking_progress))
+                .route("/tracking", post(handlers::tracker::tracking))
+                .route("/download/{id}", get(handlers::tracker::download))
+                .with_state(state)
+                .layer(DefaultBodyLimit::disable())
+                .layer(DefaultBodyLimit::max(300 * 1024 * 1024)),
+        )
 }

@@ -1,7 +1,8 @@
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::sync::Arc;
 
 use axum::Router;
-use networking::api;
+use networking::{api, state::AppState};
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
@@ -10,7 +11,6 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 async fn main() {
     dotenvy::dotenv().ok();
 
-    // Инициализация tracing
     tracing_subscriber::registry()
         .with(
             tracing_subscriber::EnvFilter::try_from_default_env()
@@ -21,16 +21,15 @@ async fn main() {
 
     tracing::info!("Starting server...");
 
-    // Настройка CORS
     let cors = CorsLayer::new()
         .allow_origin(Any)
         .allow_methods(Any)
         .allow_headers(Any);
 
-    let app = Router::new();
-    let app = api::configure(app);
+    let state = Arc::new(AppState::new().await);
 
-    // Применение middleware
+    let app = Router::new();
+    let app = api::configure(app, state);
     let app = app.layer(cors).layer(TraceLayer::new_for_http());
 
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 8080);

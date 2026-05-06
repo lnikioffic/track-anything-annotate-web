@@ -1,6 +1,8 @@
 import numpy as np
 
-from ml_core.Tracker.XMem2.inference.interact.interactive_utils import color_map_np
+from ml_core.Tracker.XMem2.inference.interact.interactive_utils import (
+    color_map_np,
+)
 
 
 def visualize_unique_mask(unique_mask):
@@ -26,7 +28,10 @@ def mask_map(mask):
         object_mask = (mask == value).astype(np.uint8)
 
         # Создаем черное изображение с теми же размерами, что и маска
-        colored_mask = np.zeros((mask.shape[0], mask.shape[1], 3), dtype=np.uint8)
+        colored_mask = np.zeros(
+            (mask.shape[0], mask.shape[1], 3),
+            dtype=np.uint8,
+        )
 
         # Устанавливаем белый цвет для текущего объекта
         colored_mask[object_mask > 0] = [255, 255, 255]

@@ -11,10 +11,10 @@ ML_CORE_ROOT = Path(__file__).resolve().parent
 def get_device() -> str:
     """Возвращает доступное устройство."""
     if torch.cuda.is_available():
-        print("Using GPU")
-        return "cuda"
-    print("CUDA not available. Using CPU.")
-    return "cpu"
+        print('Using GPU')
+        return 'cuda'
+    print('CUDA not available. Using CPU.')
+    return 'cpu'
 
 
 @dataclass
@@ -36,17 +36,17 @@ class XMemConfig:
     def to_dict(self) -> dict[str, Any]:
         """Конвертация в словарь."""
         return {
-            "top_k": self.top_k,
-            "mem_every": self.mem_every,
-            "deep_update_every": self.deep_update_every,
-            "enable_long_term": self.enable_long_term,
-            "enable_long_term_count_usage": self.enable_long_term_count_usage,
-            "num_prototypes": self.num_prototypes,
-            "min_mid_term_frames": self.min_mid_term_frames,
-            "max_mid_term_frames": self.max_mid_term_frames,
-            "max_long_term_elements": self.max_long_term_elements,
-            "size": self.size,
-            "device": self.device,
+            'top_k': self.top_k,
+            'mem_every': self.mem_every,
+            'deep_update_every': self.deep_update_every,
+            'enable_long_term': self.enable_long_term,
+            'enable_long_term_count_usage': self.enable_long_term_count_usage,
+            'num_prototypes': self.num_prototypes,
+            'min_mid_term_frames': self.min_mid_term_frames,
+            'max_mid_term_frames': self.max_mid_term_frames,
+            'max_long_term_elements': self.max_long_term_elements,
+            'size': self.size,
+            'device': self.device,
         }
 
 

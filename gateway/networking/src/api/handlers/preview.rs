@@ -1,8 +1,15 @@
-use axum::{extract::Multipart, http::StatusCode, response::IntoResponse};
+use std::sync::Arc;
+
+use axum::extract::{Multipart, State};
 use reqwest::{header, multipart};
 
-pub async fn preview(mut multipart: Multipart) -> impl IntoResponse {
-    let url_preview = std::env::var("PREVIEW_WORKER_URL").unwrap();
+use crate::{error::AppError, response::AppResponse, state::AppState};
+
+pub async fn preview(
+    State(state): State<Arc<AppState>>,
+    mut multipart: Multipart,
+) -> Result<AppResponse<()>, AppError> {
+    let url_preview = state.settings.url_preview.clone();
 
     let mut file = Vec::new();
     let mut json_data = String::new();
@@ -39,26 +46,16 @@ pub async fn preview(mut multipart: Multipart) -> impl IntoResponse {
         .post(format!("{}/preview", url_preview))
         .multipart(form)
         .send()
-        .await;
+        .await?;
 
-    match response {
-        Ok(res) => {
-            let content_type = res
-                .headers()
-                .get(header::CONTENT_TYPE)
-                .and_then(|v| v.to_str().ok())
-                .unwrap_or("image/jpeg")
-                .to_string();
+    let content_type = response
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("image/jpeg")
+        .to_string();
 
-            let bytes = res.bytes().await.unwrap_or_default();
+    let bytes = response.bytes().await?;
 
-            (
-                StatusCode::OK,
-                [(header::CONTENT_TYPE, content_type)],
-                bytes,
-            )
-                .into_response()
-        }
-        Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
-    }
+    Ok(AppResponse::<()>::binary(bytes, &content_type))
 }
