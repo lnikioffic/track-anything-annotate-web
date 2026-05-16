@@ -121,6 +121,29 @@ pub async fn checking_progress(
     }))
 }
 
+pub async fn cancel_tracking(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<Uuid>,
+) -> Result<AppResponse<ProgressResponse>, AppError> {
+    let status = state
+        .redis_service
+        .get_task_status(id)
+        .await?
+        .ok_or(AppError::NotFound)?;
+
+    if status != "done" && status != "cancelled" {
+        state
+            .redis_service
+            .set_task_status(id, "cancelled")
+            .await?;
+    }
+
+    Ok(AppResponse::ok(ProgressResponse {
+        task_id: id,
+        status: "cancelled".to_string(),
+    }))
+}
+
 pub async fn download(
     State(state): State<Arc<AppState>>,
     Path(id): Path<Uuid>,
