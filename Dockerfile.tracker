@@ -1,0 +1,57 @@
+FROM python:3.14-slim AS builder
+
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+
+ENV UV_PYTHON_DOWNLOADS=0 \
+    UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy
+
+# Build-stage dependencies
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libglib2.0-0 \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Copy dependency definitions
+COPY ml_core/pyproject.toml ml_core/uv.lock ./ml_core/
+COPY workers/tracker/pyproject.toml workers/tracker/uv.lock ./workers/tracker/
+
+# Copy source code before sync (ml-core is editable)
+COPY ml_core/ ./ml_core/
+
+# Install dependencies with cache mount
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync \
+    --frozen \
+    --no-dev \
+    --extra cpu \
+    --project workers/tracker
+
+# Copy source code
+COPY workers/tracker/ ./workers/tracker/
+
+FROM python:3.14-slim AS runtime
+
+# Runtime dependencies (no build tools, no pip)
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libglib2.0-0 \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* \
+    && useradd -u 1001 -g 0 -m appuser
+
+ENV PATH="/app/workers/tracker/.venv/bin:$PATH" \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+WORKDIR /app
+
+# Copy entire app structure with venv from builder
+COPY --from=builder --chown=appuser:root /app /app
+
+WORKDIR /app/workers/tracker
+
+USER appuser
+
+CMD ["faststream", "run", "src.main:app"]

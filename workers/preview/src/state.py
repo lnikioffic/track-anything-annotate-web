@@ -11,7 +11,7 @@ from ml_core import (
 
 class SegmentState:
     def __init__(self) -> None:
-        self._segmenter = Segmenter(Sam2ModelSize.Large, 'cpu')
+        self._segmenter = Segmenter(Sam2ModelSize.BasePlus, 'cpu')
         self.segmenter_controller = SamController(self._segmenter)
         self.segmenter_service = SegmentationService(self.segmenter_controller)
 

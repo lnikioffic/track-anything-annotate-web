@@ -17,6 +17,9 @@ def get_device() -> str:
     return 'cpu'
 
 
+DEVICE = get_device()
+
+
 @dataclass
 class XMemConfig:
     """Конфигурация XMem."""
@@ -31,7 +34,7 @@ class XMemConfig:
     max_mid_term_frames: int = 10
     max_long_term_elements: int = 5000
     size: int = 480
-    device: str = field(default_factory=get_device)
+    device: str = DEVICE
 
     def to_dict(self) -> dict[str, Any]:
         """Конвертация в словарь."""
@@ -54,11 +57,10 @@ class XMemConfig:
 class Config:
     """Глобальная конфигурация."""
 
-    DEVICE: str = field(default_factory=get_device)
+    DEVICE: str = DEVICE
     XMEM_CONFIG: XMemConfig = field(default_factory=XMemConfig)
 
 
 config = Config()
 
-DEVICE = config.DEVICE
 XMEM_CONFIG = config.XMEM_CONFIG.to_dict()

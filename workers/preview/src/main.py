@@ -1,4 +1,6 @@
 import json
+import os
+import tempfile
 from contextlib import asynccontextmanager
 from typing import Annotated
 
@@ -38,6 +40,31 @@ app.add_middleware(
 @app.get('/health', status_code=status.HTTP_200_OK)
 async def health():
     return {'status': 'ok'}
+
+
+@app.post('/frame')
+async def extract_frame(file: Annotated[UploadFile, File()]) -> Response:
+    contents = await file.read()
+    suffix = os.path.splitext(file.filename or '')[1].lower() or '.mp4'
+    if suffix not in ('.mp4', '.avi', '.mov', '.mkv', '.webm'):
+        suffix = '.mp4'
+
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+        tmp.write(contents)
+        tmp_path = tmp.name
+
+    try:
+        cap = cv2.VideoCapture(tmp_path)
+        ret, frame = cap.read()
+        cap.release()
+        if not ret or frame is None:
+            return Response(content='Cannot extract frame from video', status_code=400)
+        success, encoded = cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), 95])
+        if not success:
+            return Response(content='Failed to encode frame', status_code=500)
+        return Response(content=encoded.tobytes(), media_type='image/jpeg')
+    finally:
+        os.unlink(tmp_path)
 
 
 @app.post('/preview')

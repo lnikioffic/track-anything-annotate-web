@@ -30,6 +30,10 @@ class Sam2ModelSize(Enum):
         pt=CHECKPOINTS_ROOT / 'sam2.1_hiera_small.pt',
         yaml='configs/sam2.1/sam2.1_hiera_s.yaml',
     )
+    BasePlus = PathModelsSam2(
+        pt=CHECKPOINTS_ROOT / 'sam2.1_hiera_base_plus.pt',
+        yaml='configs/sam2.1/sam2.1_hiera_b+.yaml',
+    )
     Large = PathModelsSam2(
         pt=CHECKPOINTS_ROOT / 'sam2.1_hiera_large.pt',
         yaml='configs/sam2.1/sam2.1_hiera_l.yaml',

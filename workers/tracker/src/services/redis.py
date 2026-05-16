@@ -12,3 +12,6 @@ class RedisService:
             status,
             ex=self._ttl_seconds,
         )
+
+    async def get_status(self, task_id) -> str | None:
+        return await self._redis.get(f'task:{task_id}:status')

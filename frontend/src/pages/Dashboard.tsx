@@ -1,15 +1,15 @@
 import { Link } from "react-router-dom";
-import { Video, Image as ImageIcon, ArrowRight } from "lucide-react";
+import { Video, ArrowRight } from "lucide-react";
 
 export const Dashboard = () => {
   return (
     <div className="p-8">
       <h1 className="text-4xl font-bold mb-2">Track Anything Annotate</h1>
       <p className="text-muted-foreground mb-8 text-lg">
-        Платформа для разметки данных с использованием ML.
+        Платформа для разметки видео с использованием SAM 2 + XMem.
       </p>
 
-      <div className="grid md:grid-cols-2 gap-6 max-w-4xl">
+      <div className="grid gap-6 max-w-md">
         <Link
           to="/video"
           className="group block p-6 bg-white border rounded-xl shadow-sm hover:shadow-md transition-all hover:border-primary"
@@ -19,25 +19,8 @@ export const Dashboard = () => {
           </div>
           <h2 className="text-2xl font-bold mb-2">Разметка Видео</h2>
           <p className="text-muted-foreground mb-4">
-            Загрузите видео, разметьте первый кадр, и алгоритм SAM 2 + XMem
-            автоматически отследит объекты.
-          </p>
-          <div className="text-primary font-medium flex items-center gap-2">
-            Начать <ArrowRight size={16} />
-          </div>
-        </Link>
-
-        <Link
-          to="/photo"
-          className="group block p-6 bg-white border rounded-xl shadow-sm hover:shadow-md transition-all hover:border-primary"
-        >
-          <div className="w-12 h-12 bg-purple-100 text-purple-600 rounded-lg flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
-            <ImageIcon size={24} />
-          </div>
-          <h2 className="text-2xl font-bold mb-2">Разметка Фото</h2>
-          <p className="text-muted-foreground mb-4">
-            Загрузите коллекцию изображений для быстрой ручной разметки и
-            экспорта в COCO/YOLO.
+            Загрузите видео, разметьте первый кадр — SAM 2 + XMem автоматически
+            отследит объекты и соберёт датасет в нужном формате.
           </p>
           <div className="text-primary font-medium flex items-center gap-2">
             Начать <ArrowRight size={16} />
