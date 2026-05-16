@@ -1,0 +1,58 @@
+FROM python:3.14-slim AS builder
+
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+
+ENV UV_PYTHON_DOWNLOADS=0 \
+    UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy
+
+# Build-stage dependencies
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libglib2.0-0 git \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Copy all dependency definitions
+COPY workers/preview/pyproject.toml workers/preview/uv.lock ./workers/preview/
+COPY ml_core/ ./ml_core/
+
+# Install dependencies with cache mount
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync \
+    --frozen \
+    --no-dev \
+    --project workers/preview
+
+# Copy remaining source files
+COPY workers/preview/ ./workers/preview/
+
+FROM python:3.14-slim AS runtime
+
+# Runtime dependencies (minimal, no build tools)
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libglib2.0-0 \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* \
+    && useradd -u 1001 -g 0 -m appuser
+
+ENV PATH="/app/workers/preview/.venv/bin:$PATH" \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+WORKDIR /app
+
+# Copy entire app structure with venv from builder
+COPY --from=builder --chown=appuser:root /app /app
+
+WORKDIR /app/workers/preview
+
+EXPOSE 8000
+
+HEALTHCHECK --interval=10s --timeout=5s --retries=3 \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"
+
+USER appuser
+
+CMD ["uvicorn", "src.main:app", "--workers", "2", "--host", "0.0.0.0", "--port", "8000"]

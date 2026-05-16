@@ -8,7 +8,7 @@ dependencies = [
     "faststream[cli,rabbit]>=0.5.48",
     "aiohttp>=3.13.5",
     "ml-core",
-    "opencv-python>=4.13.0.92",
+    "opencv-python-headless>=4.13.0.92",
     "orjson>=3.11.4",
     "pydantic>=2.12.5",
     "pydantic-settings>=2.13.1",
@@ -59,6 +59,7 @@ explicit = true
 
 [dependency-groups]
 dev = [
+    "opencv-python>=4.13.0.92",
     "pytest>=9.0.2",
     "ruff>=0.15.5",
 ]
