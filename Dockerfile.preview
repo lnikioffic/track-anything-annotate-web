@@ -3,70 +3,56 @@ FROM python:3.14-slim AS builder
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
 ENV UV_PYTHON_DOWNLOADS=0 \
-    UV_COMPILE_BYTECODE=1
+    UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy
 
-# Системные зависимости для OpenCV
-RUN apt-get update && apt-get install -y --no-install-recommends \
-        libglib2.0-0 \
-        git \
+# Build-stage dependencies
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libglib2.0-0 git \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Рабочая директория — КОРЕНЬ проекта
 WORKDIR /app
 
+# Copy all dependency definitions
 COPY workers/preview/pyproject.toml workers/preview/uv.lock ./workers/preview/
+COPY ml_core/ ./ml_core/
 
-RUN mkdir -p ml_core \
-    && echo '[project]\nname="ml-core"\nversion="0.1.0"' > ml_core/pyproject.toml
-
+# Install dependencies with cache mount
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync \
     --frozen \
     --no-dev \
-    --no-install-workspace \
-    --no-editable \
     --project workers/preview
 
-COPY ml_core/ ./ml_core/
+# Copy remaining source files
 COPY workers/preview/ ./workers/preview/
-
-WORKDIR /app/workers/preview
-
-RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-dev
 
 FROM python:3.14-slim AS runtime
 
-# Runtime libs для CV (без git/build-essential)
+# Runtime dependencies (minimal, no build tools)
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
-        libglib2.0-0 \
+    && apt-get install -y --no-install-recommends libglib2.0-0 \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/* \
     && useradd -u 1001 -g 0 -m appuser
 
-# uv ENV
-ENV UV_PYTHON_DOWNLOADS=never \
-    UV_COMPILE_BYTECODE=1 \
-    UV_LINK_MODE=copy \
-    PATH="/app/workers/preview/.venv/bin:$PATH"
+ENV PATH="/app/workers/preview/.venv/bin:$PATH" \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
 
 WORKDIR /app
 
-# Копируем .venv и код
+# Copy entire app structure with venv from builder
 COPY --from=builder --chown=appuser:root /app /app
 
 WORKDIR /app/workers/preview
 
 EXPOSE 8000
 
+HEALTHCHECK --interval=10s --timeout=5s --retries=3 \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"
+
 USER appuser
 
 CMD ["uvicorn", "src.main:app", "--workers", "2", "--host", "0.0.0.0", "--port", "8000"]
-
-
-# EXPOSE 8000
-
-# # Если main.py лежит в папке src, используем "src.main:app"
-# CMD ["uv", "run", "uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000"]
