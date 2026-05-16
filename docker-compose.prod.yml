@@ -1,9 +1,6 @@
 services:
     gateway:
         image: lniki/track-anything-gateway:latest
-        build:
-            context: ./gateway
-            dockerfile: Dockerfile
         ports:
             - "8080:8080"
         environment:
@@ -21,15 +18,12 @@ services:
 
     preview-worker:
         image: lniki/track-anything-preview-worker:latest
-        build:
-            context: .
-            dockerfile: Dockerfile.preview
         ports:
             - "8000:8000"
         environment:
             - DEVICE=cpu
         volumes:
-            - ./ml_core:/app/ml_core:ro
+            - ./ml_core/checkpoints:/app/ml_core/checkpoints:ro
         healthcheck:
             test:
                 [
@@ -42,23 +36,8 @@ services:
             timeout: 5s
             retries: 5
 
-    # tracker-worker:
-    #     build:
-    #         context: .
-    #         dockerfile: Dockerfile.tracker
-    #     environment:
-    #         - YANDEX_DISK_TOKEN=${YANDEX_DISK_TOKEN}
-    #         - REDIS_URL=${REDIS_URL}
-    #         - RABBITMQ_URL=${RABBITMQ_URL}
-    #     depends_on:
-    #         - rabbitmq
-    #         - valkey
-
     frontend:
         image: lniki/track-anything-frontend:latest
-        build:
-            context: ./frontend
-            dockerfile: Dockerfile
         ports:
             - "5173:5173"
         environment:

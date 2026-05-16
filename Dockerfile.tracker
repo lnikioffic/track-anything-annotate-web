@@ -12,6 +12,6 @@ COPY workers/tracker /app/workers/tracker
 
 WORKDIR /app/workers/tracker
 
-RUN uv sync --extra cpu
+RUN uv sync --frozen --no-dev --extra gpu
 
-CMD ["uv", "run", "python", "-m", "tracker_worker.main"]
+CMD ["uv", "run", "--frozen", "--no-dev", "--extra", "gpu", "faststream", "run", "src.main:app"]
