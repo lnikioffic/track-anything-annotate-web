@@ -1,80 +1,115 @@
-import React from "react";
-import { useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import UploadZone from "../components/UploadZone";
 import Annotator from "../components/annotation/Annotator";
 import { Button } from "../components/ui/Button";
 import { useStore } from "../store/annotationStore";
+import type { Annotation, ExportFormat } from "../store/annotationStore";
+import { previewService } from "../services/previewService";
+import { filePersistence } from "../lib/filePersistence";
 import {
-  previewService,
-  type AnnotationPrompt,
-} from "../services/previewService";
+  annotationsToBackendFormat,
+  calculateScaleParams,
+  cn,
+} from "../lib/utils";
 import {
   Box,
   Crosshair,
   Play,
-  Save,
   Download,
-  Upload,
   Wand2,
   Loader2,
+  X,
+  Upload,
+  Menu,
 } from "lucide-react";
-import type { Annotation } from "../store/annotationStore";
-import {
-  cn,
-  exportAnnotationsToJson,
-  importAnnotationsFromJson,
-  calculateScaleParams,
-} from "../lib/utils";
 
-// Компонент тулбара
+const CANVAS_W = 800;
+const CANVAS_H = 500;
+
+// ─── ConfirmDialog ────────────────────────────────────────────────────────────
+
+interface ConfirmDialogProps {
+  title: string;
+  body: React.ReactNode;
+  confirmLabel?: string;
+  confirmVariant?: "destructive" | "default";
+  onConfirm(): void;
+  onCancel(): void;
+}
+
+const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
+  title,
+  body,
+  confirmLabel = "Подтвердить",
+  confirmVariant = "destructive",
+  onConfirm,
+  onCancel,
+}) => (
+  <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[110] p-4">
+    <div className="bg-white p-6 rounded-lg shadow-lg max-w-sm w-full">
+      <h3 className="font-semibold text-lg mb-2">{title}</h3>
+      <div className="text-sm text-gray-600 mb-4">{body}</div>
+      <div className="flex gap-2">
+        <Button variant={confirmVariant} onClick={onConfirm} className="flex-1">
+          {confirmLabel}
+        </Button>
+        <Button variant="outline" onClick={onCancel} className="flex-1">
+          Отмена
+        </Button>
+      </div>
+    </div>
+  </div>
+);
+
+// ─── Toolbar ──────────────────────────────────────────────────────────────────
+
 interface ToolbarProps {
-  labels: string[];
-  selectedLabel: string;
-  setSelectedLabel: (label: string) => void;
-  addLabel: (label: string) => boolean;
-  removeLabel: (label: string) => void;
-  skipDeleteConfirm: boolean;
-  setSkipDeleteConfirm: (skip: boolean) => void;
-  frameAnnotations: Annotation[];
-  annotationsByLabel: Map<string, number>;
-  currentFrame: number;
-  removeAnnotation: (id: string) => void;
-  removeAnnotationsByFrame: (frameId: number) => void;
   highlightedAnnotationId: string | null;
   setHighlightedAnnotationId: (id: string | null) => void;
-  annotationType: "rect" | "point" | null;
-  setAnnotationType: (type: "rect" | "point" | null) => void;
 }
 
 const Toolbar: React.FC<ToolbarProps> = ({
-  labels,
-  selectedLabel,
-  setSelectedLabel,
-  addLabel,
-  removeLabel,
-  skipDeleteConfirm,
-  setSkipDeleteConfirm,
-  frameAnnotations,
-  annotationsByLabel,
-  currentFrame,
-  removeAnnotation,
-  removeAnnotationsByFrame,
   highlightedAnnotationId,
   setHighlightedAnnotationId,
-  annotationType,
-  setAnnotationType,
 }) => {
-  const [newLabel, setNewLabel] = React.useState("");
-  const [error, setError] = React.useState("");
-  const [deleteConfirm, setDeleteConfirm] = React.useState<string | null>(null);
-  const [deleteAnnotationConfirm, setDeleteAnnotationConfirm] = React.useState<{
-    id: string;
-    label: string;
-    type: string;
-    x: number;
-    y: number;
-  } | null>(null);
-  const [deleteAllConfirm, setDeleteAllConfirm] = React.useState(false);
+  const {
+    labels,
+    selectedLabel,
+    setSelectedLabel,
+    addLabel,
+    removeLabel,
+    skipDeleteConfirm,
+    setSkipDeleteConfirm,
+    annotations,
+    currentFrame,
+    removeAnnotation,
+    removeAnnotationsByFrame,
+    annotationType,
+    setAnnotationType,
+  } = useStore();
+
+  const frameAnnotations = useMemo(
+    () => annotations.filter((a) => a.frameId === currentFrame),
+    [annotations, currentFrame],
+  );
+
+  const annotationsByLabel = useMemo(() => {
+    const map = new Map<string, number>();
+    frameAnnotations.forEach((a) =>
+      map.set(a.label, (map.get(a.label) ?? 0) + 1),
+    );
+    return map;
+  }, [frameAnnotations]);
+
+  const [newLabel, setNewLabel] = useState("");
+  const [error, setError] = useState("");
+  const [deleteClassConfirm, setDeleteClassConfirm] = useState<string | null>(
+    null,
+  );
+  const [deleteAnnConfirm, setDeleteAnnConfirm] = useState<Annotation | null>(
+    null,
+  );
+  const [deleteAllConfirm, setDeleteAllConfirm] = useState(false);
 
   const handleAddLabel = () => {
     const trimmed = newLabel.trim();
@@ -86,638 +121,603 @@ const Toolbar: React.FC<ToolbarProps> = ({
       setError("Слишком длинное название");
       return;
     }
-    const success = addLabel(trimmed);
-    if (!success) {
-      setError("Класс существует или достигнут лимит (5)");
+    if (!addLabel(trimmed)) {
+      setError("Класс уже существует или достигнут лимит (5)");
     } else {
       setNewLabel("");
       setError("");
     }
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Enter") {
-      handleAddLabel();
-    }
+  const handleRemoveAnnotation = (ann: Annotation) => {
+    if (skipDeleteConfirm) removeAnnotation(ann.id);
+    else setDeleteAnnConfirm(ann);
   };
 
   const handleRemoveLabel = (label: string) => {
-    if (skipDeleteConfirm) {
-      removeLabel(label);
-    } else {
-      setDeleteConfirm(label);
-    }
+    if (skipDeleteConfirm) removeLabel(label);
+    else setDeleteClassConfirm(label);
   };
 
-  const confirmRemoveLabel = () => {
-    if (deleteConfirm) {
-      removeLabel(deleteConfirm);
-      setDeleteConfirm(null);
-    }
-  };
-
-  const handleRemoveAnnotation = (ann: Annotation) => {
-    if (skipDeleteConfirm) {
-      removeAnnotation(ann.id);
-    } else {
-      setDeleteAnnotationConfirm({
-        id: ann.id,
-        label: ann.label,
-        type: ann.type,
-        x: ann.type === "rect" ? ann.x + (ann.width || 0) / 2 : ann.x,
-        y: ann.type === "rect" ? ann.y + (ann.height || 0) / 2 : ann.y,
-      });
-    }
-  };
-
-  const confirmRemoveAnnotation = () => {
-    if (deleteAnnotationConfirm) {
-      removeAnnotation(deleteAnnotationConfirm.id);
-      setDeleteAnnotationConfirm(null);
-    }
-  };
-
-  const handleRemoveAllAnnotations = () => {
-    if (skipDeleteConfirm) {
-      removeAnnotationsByFrame(currentFrame);
-    } else {
-      setDeleteAllConfirm(true);
-    }
-  };
-
-  const confirmRemoveAllAnnotations = () => {
-    removeAnnotationsByFrame(currentFrame);
-    setDeleteAllConfirm(false);
+  const handleRemoveAll = () => {
+    if (skipDeleteConfirm) removeAnnotationsByFrame(currentFrame);
+    else setDeleteAllConfirm(true);
   };
 
   return (
-    <div className="flex flex-col gap-4 bg-white p-4 rounded-lg shadow border h-fit">
-      <h3 className="font-semibold text-sm mb-2 text-gray-500">ИНСТРУМЕНТЫ</h3>
+    <div className="flex flex-col gap-4 bg-white p-4 rounded-lg shadow border h-full min-w-[300px] overflow-hidden">
+      <h3 className="font-semibold text-sm text-gray-500 uppercase tracking-wider">
+        ИНСТРУМЕНТЫ
+      </h3>
 
-      {/* Переключатель типа разметки */}
-      <div className="mb-2">
-        <h4 className="text-xs font-medium text-gray-500 mb-2">ТИП РАЗМЕТКИ</h4>
+      <div>
+        <h4 className="text-xs font-medium text-gray-500 mb-2 uppercase">
+          ТИП РАЗМЕТКИ
+        </h4>
         <div className="flex gap-1 p-1 bg-gray-100 rounded-md">
-          <button
-            onClick={() => setAnnotationType("rect")}
-            className={cn(
-              "flex-1 flex items-center justify-center gap-1 px-2 py-1.5 text-xs rounded-md transition-colors",
-              annotationType === "rect"
-                ? "bg-white text-primary shadow-sm font-medium"
-                : "text-gray-600 hover:text-gray-900",
-            )}
-          >
-            <Box size={14} /> Рамки
-          </button>
-          <button
-            onClick={() => setAnnotationType("point")}
-            className={cn(
-              "flex-1 flex items-center justify-center gap-1 px-2 py-1.5 text-xs rounded-md transition-colors",
-              annotationType === "point"
-                ? "bg-white text-primary shadow-sm font-medium"
-                : "text-gray-600 hover:text-gray-900",
-            )}
-          >
-            <Crosshair size={14} /> Точки
-          </button>
+          {(["rect", "point"] as const).map((t) => (
+            <button
+              key={t}
+              onClick={() => setAnnotationType(annotationType === t ? null : t)}
+              className={cn(
+                "flex-1 flex items-center justify-center gap-1 px-2 py-1.5 text-xs rounded-md transition-colors cursor-pointer select-none",
+                annotationType === t
+                  ? "bg-white text-primary shadow-sm font-medium"
+                  : "text-gray-600 hover:bg-white/60 hover:text-gray-900",
+              )}
+            >
+              {t === "rect" ? (
+                <>
+                  <Box size={14} /> Рамки
+                </>
+              ) : (
+                <>
+                  <Crosshair size={14} /> Точки
+                </>
+              )}
+            </button>
+          ))}
         </div>
         {annotationType && (
-          <p className="text-xs text-muted-foreground mt-1">
-            Активен режим:{" "}
+          <p className="text-[10px] text-muted-foreground mt-1 px-1">
+            Режим:{" "}
             <strong>{annotationType === "rect" ? "рамки" : "точки"}</strong>
           </p>
         )}
       </div>
 
-      <h3 className="font-semibold text-sm mb-2 mt-4 text-gray-500">
-        КЛАССЫ ({labels.length}/5)
-      </h3>
-
-      {/* Форма добавления класса */}
-      <div className="flex gap-2">
-        <input
-          type="text"
-          value={newLabel}
-          onChange={(e) => {
-            setNewLabel(e.target.value);
-            setError("");
-          }}
-          onKeyDown={handleKeyDown}
-          placeholder="Название класса"
-          className="flex-1 px-3 py-2 text-sm border rounded-md focus:outline-none focus:ring-2 focus:ring-primary"
-          disabled={labels.length >= 5}
-        />
-        <Button
-          variant="default"
-          size="sm"
-          onClick={handleAddLabel}
-          disabled={labels.length >= 5}
-        >
-          +
-        </Button>
+      <div className="flex flex-col gap-2">
+        <h3 className="font-semibold text-sm text-gray-500 uppercase tracking-wider">
+          КЛАССЫ ({labels.length}/5)
+        </h3>
+        <div className="flex gap-2">
+          <input
+            type="text"
+            value={newLabel}
+            onChange={(e) => {
+              setNewLabel(e.target.value);
+              setError("");
+            }}
+            onKeyDown={(e) => e.key === "Enter" && handleAddLabel()}
+            placeholder="Название класса"
+            className="flex-1 px-3 py-2 text-sm border rounded-md hover:border-gray-400 focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-50"
+            disabled={labels.length >= 5}
+          />
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleAddLabel}
+            disabled={labels.length >= 5}
+          >
+            +
+          </Button>
+        </div>
+        {error && <p className="text-[10px] text-destructive px-1">{error}</p>}
       </div>
-      {error && <p className="text-xs text-destructive">{error}</p>}
-      {labels.length === 0 && (
-        <p className="text-xs text-amber-600 bg-amber-50 p-2 rounded border border-amber-200">
-          ⚠️ Добавьте хотя бы один класс для начала разметки
-        </p>
-      )}
 
-      {/* Опция пропуска подтверждения */}
-      <label className="flex items-center gap-2 text-xs text-muted-foreground">
+      <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer select-none hover:text-gray-700 transition-colors">
         <input
           type="checkbox"
           checked={skipDeleteConfirm}
           onChange={(e) => setSkipDeleteConfirm(e.target.checked)}
-          className="rounded border-gray-300"
+          className="rounded border-gray-300 cursor-pointer"
         />
         Не спрашивать подтверждение
       </label>
 
-      <div className="flex flex-col gap-2">
-        {labels.map((label) => {
-          const count = annotationsByLabel.get(label) || 0;
-          return (
-            <div
-              key={label}
-              className={cn(
-                "flex items-center justify-between px-3 py-2 rounded text-sm transition-colors border",
-                selectedLabel === label
-                  ? "bg-blue-50 border-blue-500 text-blue-700 font-medium"
-                  : "hover:bg-gray-50 border-transparent",
-              )}
+      <div className="flex flex-col gap-1 overflow-y-auto max-h-[160px] pr-1">
+        {labels.map((label) => (
+          <div
+            key={label}
+            className={cn(
+              "group flex items-center justify-between px-3 py-2 rounded text-sm transition-all border",
+              selectedLabel === label
+                ? "bg-blue-50 border-blue-500 text-blue-700 font-medium"
+                : "hover:bg-gray-50 border-transparent",
+            )}
+          >
+            <button
+              onClick={() => setSelectedLabel(label)}
+              className="flex-1 text-left truncate cursor-pointer"
             >
-              <button
-                onClick={() => setSelectedLabel(label)}
-                className="flex-1 text-left"
-              >
-                {label}{" "}
-                {count > 0 && (
-                  <span className="text-xs opacity-60">({count})</span>
-                )}
-              </button>
-              <button
-                onClick={() => handleRemoveLabel(label)}
-                className="ml-2 p-1 hover:bg-red-100 rounded text-red-600"
-                title="Удалить класс и все аннотации"
-              >
-                ×
-              </button>
-            </div>
-          );
-        })}
+              {label}{" "}
+              {(annotationsByLabel.get(label) ?? 0) > 0 && (
+                <span className="text-[10px] opacity-60">
+                  ({annotationsByLabel.get(label)})
+                </span>
+              )}
+            </button>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                handleRemoveLabel(label);
+              }}
+              className="relative z-20 ml-2 p-1 hover:bg-red-100 rounded text-red-600 cursor-pointer transition-colors"
+            >
+              <X size={14} />
+            </button>
+          </div>
+        ))}
       </div>
 
-      {/* Удаление всех аннотаций на кадре */}
       {frameAnnotations.length > 0 && (
-        <div className="mt-4 pt-4 border-t">
+        <div className="mt-2 pt-4 border-t flex flex-col gap-2 flex-1 min-h-0 overflow-hidden">
+          <div className="flex items-center justify-between shrink-0">
+            <h4 className="font-semibold text-[11px] text-gray-500 uppercase">
+              НА КАДРЕ ({frameAnnotations.length}/10)
+            </h4>
+          </div>
+
           <Button
             variant="destructive"
             size="sm"
-            className="w-full"
-            onClick={handleRemoveAllAnnotations}
+            className="w-full text-xs h-8 shrink-0"
+            onClick={handleRemoveAll}
           >
-            Удалить все аннотации на кадре ({frameAnnotations.length})
+            Удалить все ({frameAnnotations.length})
           </Button>
-        </div>
-      )}
 
-      {/* Список аннотаций на кадре с возможностью удаления и подсветкой */}
-      {frameAnnotations.length > 0 && (
-        <div className="mt-2">
-          <div className="flex items-center justify-between mb-2">
-            <h4 className="font-semibold text-xs text-gray-500">
-              АННОТАЦИИ НА КАДРЕ ({frameAnnotations.length}/10)
-            </h4>
-            {frameAnnotations.length >= 10 && (
-              <span className="text-xs text-amber-600 font-medium">
-                ⚠️ Лимит
-              </span>
-            )}
-          </div>
-          <div className="flex flex-col gap-1 max-h-40 overflow-y-auto">
+          <div className="flex flex-col gap-1 overflow-y-auto flex-1 pr-1">
             {frameAnnotations.map((ann) => (
               <div
                 key={ann.id}
                 className={cn(
-                  "flex items-center justify-between px-2 py-1 text-xs border rounded cursor-pointer transition-colors",
+                  "group flex items-center justify-between px-2 py-1.5 text-xs border rounded cursor-pointer transition-colors",
                   highlightedAnnotationId === ann.id
                     ? "bg-blue-100 border-blue-500"
-                    : "hover:bg-gray-50",
+                    : "bg-white hover:border-gray-300",
                 )}
                 onMouseEnter={() => setHighlightedAnnotationId(ann.id)}
                 onMouseLeave={() => setHighlightedAnnotationId(null)}
               >
-                <div className="truncate flex-1">
-                  <div className="font-medium">{ann.label}</div>
-                </div>
+                <span className="truncate font-medium flex-1">{ann.label}</span>
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
                     handleRemoveAnnotation(ann);
                   }}
-                  className="ml-2 p-1 hover:bg-red-100 rounded text-red-600 flex-shrink-0"
-                  title="Удалить аннотацию"
+                  className="relative z-20 ml-2 p-1 hover:bg-red-100 rounded text-red-600 shrink-0 transition-colors"
                 >
-                  ×
+                  <X size={14} />
                 </button>
               </div>
             ))}
           </div>
-          <p className="text-xs text-muted-foreground mt-2">
-            Наведите на объект для подсветки на изображении
+          <p className="text-[10px] text-muted-foreground text-center italic mt-1 shrink-0">
+            Наведите для подсветки на канвасе
           </p>
         </div>
       )}
 
-      {/* Диалог подтверждения удаления класса */}
-      {deleteConfirm && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white p-6 rounded-lg shadow-lg max-w-sm">
-            <h3 className="font-semibold text-lg mb-2">
-              Подтверждение удаления
-            </h3>
-            <p className="text-sm text-gray-600 mb-4">
-              Удалить класс "<strong>{deleteConfirm}</strong>" и все его
-              аннотации ({annotationsByLabel.get(deleteConfirm) || 0})?
-            </p>
-            <div className="flex gap-2">
-              <Button
-                variant="destructive"
-                onClick={confirmRemoveLabel}
-                className="flex-1"
-              >
-                Удалить
-              </Button>
-              <Button
-                variant="outline"
-                onClick={() => setDeleteConfirm(null)}
-                className="flex-1"
-              >
-                Отмена
-              </Button>
-            </div>
-          </div>
-        </div>
+      {deleteClassConfirm && (
+        <ConfirmDialog
+          title="Удалить класс?"
+          body={
+            <>
+              Класс «<strong>{deleteClassConfirm}</strong>» и все его аннотации
+              будут удалены.
+            </>
+          }
+          confirmLabel="Удалить"
+          onConfirm={() => {
+            removeLabel(deleteClassConfirm);
+            setDeleteClassConfirm(null);
+          }}
+          onCancel={() => setDeleteClassConfirm(null)}
+        />
       )}
 
-      {/* Диалог подтверждения удаления аннотации */}
-      {deleteAnnotationConfirm && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white p-6 rounded-lg shadow-lg max-w-sm">
-            <h3 className="font-semibold text-lg mb-2">
-              Подтверждение удаления
-            </h3>
-            <p className="text-sm text-gray-600 mb-4">
-              Удалить аннотацию "
-              <strong>{deleteAnnotationConfirm.label}</strong>"?
-            </p>
-            <div className="flex gap-2">
-              <Button
-                variant="destructive"
-                onClick={confirmRemoveAnnotation}
-                className="flex-1"
-              >
-                Удалить
-              </Button>
-              <Button
-                variant="outline"
-                onClick={() => setDeleteAnnotationConfirm(null)}
-                className="flex-1"
-              >
-                Отмена
-              </Button>
-            </div>
-          </div>
-        </div>
+      {deleteAnnConfirm && (
+        <ConfirmDialog
+          title="Удалить аннотацию?"
+          body={
+            <>
+              Аннотация «<strong>{deleteAnnConfirm.label}</strong>» будет
+              удалена.
+            </>
+          }
+          confirmLabel="Удалить"
+          onConfirm={() => {
+            removeAnnotation(deleteAnnConfirm.id);
+            setDeleteAnnConfirm(null);
+          }}
+          onCancel={() => setDeleteAnnConfirm(null)}
+        />
       )}
 
-      {/* Диалог подтверждения удаления всех аннотаций */}
       {deleteAllConfirm && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white p-6 rounded-lg shadow-lg max-w-sm">
-            <h3 className="font-semibold text-lg mb-2">
-              Подтверждение удаления
-            </h3>
-            <p className="text-sm text-gray-600 mb-4">
-              Удалить все аннотации на кадре ({frameAnnotations.length})?
-              <br />
-              <span className="text-xs text-destructive">
-                Это действие нельзя отменить
-              </span>
-            </p>
-            <div className="flex gap-2">
-              <Button
-                variant="destructive"
-                onClick={confirmRemoveAllAnnotations}
-                className="flex-1"
-              >
-                Удалить всё
-              </Button>
-              <Button
-                variant="outline"
-                onClick={() => setDeleteAllConfirm(false)}
-                className="flex-1"
-              >
-                Отмена
-              </Button>
-            </div>
-          </div>
-        </div>
+        <ConfirmDialog
+          title="Удалить всё?"
+          body={
+            <>
+              Все аннотации на этом кадре будут удалены. Это действие нельзя
+              отменить.
+            </>
+          }
+          confirmLabel="Удалить всё"
+          onConfirm={() => {
+            removeAnnotationsByFrame(currentFrame);
+            setDeleteAllConfirm(false);
+          }}
+          onCancel={() => setDeleteAllConfirm(false)}
+        />
       )}
     </div>
   );
 };
 
+// ─── VideoAnnotation ──────────────────────────────────────────────────────────
+
 const VideoAnnotation = () => {
   const {
     currentFile,
     setFile,
-    labels,
-    selectedLabel,
-    setSelectedLabel,
-    startProcessing,
-    isProcessing,
-    processingProgress,
-    currentFrame,
-    setCurrentFrame,
-    totalFrames,
-    annotations,
-    addAnnotation,
-    addLabel,
-    removeLabel,
-    skipDeleteConfirm,
-    setSkipDeleteConfirm,
-    removeAnnotation,
-    removeAnnotationsByFrame,
-    annotationType,
-    setAnnotationType,
-    maskImage,
-    setMaskImage,
     currentVideoFile,
     setCurrentVideoFile,
     firstFrameUrl,
     setFirstFrameUrl,
+    videoDimensions,
+    setVideoDimensions,
+    videoFileName,
+    annotations,
+    currentFrame,
+    addAnnotation,
+    labels,
+    addLabel,
+    annotationType,
+    maskImage,
+    setMaskImage,
+    taskId,
+    setTaskId,
+    trackingStatus,
+    setTrackingStatus,
+    trackingError,
+    setTrackingError,
+    trackingProgress,
+    setTrackingProgress,
+    skipDeleteConfirm,
+    reset,
   } = useStore();
 
-  const [highlightedAnnotationId, setHighlightedAnnotationId] = React.useState<
+  const [highlightedAnnotationId, setHighlightedAnnotationId] = useState<
     string | null
   >(null);
-  const [trackingConfirm, setTrackingConfirm] = React.useState(false);
-  const [exportFormat, setExportFormat] = useState<
-    "json" | "yolo" | "coco" | "voc"
-  >("json");
+  const [exportFormat, setExportFormat] = useState<ExportFormat>("yolo");
   const [isGeneratingMask, setIsGeneratingMask] = useState(false);
   const [maskError, setMaskError] = useState("");
   const [videoError, setVideoError] = useState<string | null>(null);
+  const [trackingConfirm, setTrackingConfirm] = useState(false);
+  const [cancelConfirm, setCancelConfirm] = useState(false);
+  const [toolbarOpen, setToolbarOpen] = useState(false);
+  const [canvasScale, setCanvasScale] = useState(1);
+  const [isRestoring, setIsRestoring] = useState(true);
 
-  const handleUpload = (file: File) => {
+  const canvasContainerRef = useRef<HTMLDivElement>(null);
+  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // 1. Адаптивный масштаб
+  useEffect(() => {
+    const el = canvasContainerRef.current;
+    if (!el) return;
+    const updateScale = () => {
+      const w = el.clientWidth;
+      const h = el.clientHeight;
+      if (w > 0 && h > 0)
+        setCanvasScale(Math.min(1, w / CANVAS_W, h / CANVAS_H));
+    };
+    const obs = new ResizeObserver(updateScale);
+    obs.observe(el);
+    updateScale();
+    return () => obs.disconnect();
+  }, [firstFrameUrl]);
+
+  // 2. Скрытие маски при изменении аннотаций (исправляет фантомные маски)
+  useEffect(() => {
+    if (maskImage) {
+      setMaskImage(null);
+      filePersistence.clearMask();
+    }
+  }, [annotations.length, labels.length]);
+
+  // 3. Восстановление состояния из IndexedDB
+  useEffect(() => {
+    const attemptRestore = async () => {
+      if (!currentVideoFile && videoFileName) {
+        const file = await filePersistence.getVideo();
+        if (file && file.name === videoFileName) setCurrentVideoFile(file);
+      }
+      const maskBlob = await filePersistence.getMask();
+      if (maskBlob && !maskImage) {
+        setMaskImage(URL.createObjectURL(maskBlob));
+      }
+      setIsRestoring(false);
+    };
+    attemptRestore();
+  }, []);
+
+  // 4. Возобновление поллинга
+  useEffect(() => {
+    if (
+      taskId &&
+      (trackingStatus === "processing" || trackingStatus === "queued")
+    ) {
+      startPolling(taskId);
+    }
+    return () => {
+      if (pollingRef.current) clearInterval(pollingRef.current);
+    };
+  }, [taskId]);
+
+  const frameAnnotations = useMemo(
+    () => annotations.filter((a: Annotation) => a.frameId === currentFrame),
+    [annotations, currentFrame],
+  );
+
+  const hasAnnotations = frameAnnotations.length > 0;
+
+  const handleUpload = async (file: File) => {
+    if (pollingRef.current) {
+      clearInterval(pollingRef.current);
+      pollingRef.current = null;
+    }
+    await filePersistence.saveVideo(file);
+
+    if (videoFileName === file.name && firstFrameUrl) {
+      setCurrentVideoFile(file);
+      return;
+    }
+
     const url = URL.createObjectURL(file);
-    setFile(url, "video");
-    setCurrentVideoFile(file);
-    setFirstFrameUrl(null);
+    setFile(url, file, file.name);
     setVideoError(null);
-    setMaskImage(null);
-
-    // Извлекаем первый кадр из видео (строго 0 секунда)
-    const video = document.createElement("video");
-    video.src = url;
-    video.preload = "auto";
-    video.muted = true;
-
-    const extractFrame = () => {
-      const canvas = document.createElement("canvas");
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-      const ctx = canvas.getContext("2d");
-      if (ctx && video.videoWidth > 0 && video.videoHeight > 0) {
-        ctx.drawImage(video, 0, 0, video.videoWidth, video.videoHeight);
-        const frameUrl = canvas.toDataURL("image/jpeg");
-        setFirstFrameUrl(frameUrl);
-        (window as any).__videoDimensions = {
-          width: video.videoWidth,
-          height: video.videoHeight,
-        };
-      } else {
-        setVideoError("Не удалось извлечь кадр из видео");
-      }
-    };
-
-    // Ждём загрузки данных и затем извлекаем кадр
-    video.addEventListener("loadeddata", () => {
-      // Проверяем готовность данных
-      if (video.readyState >= 2) {
-        extractFrame();
-      }
-    });
-
-    video.addEventListener("seeked", () => {
-      if (video.readyState >= 2) {
-        extractFrame();
-      }
-    });
-
-    video.addEventListener("error", (e) => {
-      console.error("Video error:", e);
-      setVideoError("Не удалось загрузить видео");
-    });
-
-    // Загружаем видео
-    video.load();
-
-    // После загрузки метаданных устанавливаем время строго на 0
-    video.addEventListener("loadedmetadata", () => {
-      video.currentTime = 0;
-    });
-  };
-
-  // Проверка наличия аннотаций на текущем кадре
-  const frameAnnotations = annotations.filter(
-    (a: Annotation) => a.frameId === currentFrame,
-  );
-  const annotationsByLabel = new Map<string, number>();
-  frameAnnotations.forEach((a: Annotation) => {
-    annotationsByLabel.set(a.label, (annotationsByLabel.get(a.label) || 0) + 1);
-  });
-  // Проверяем наличие аннотаций текущего выбранного типа
-  const hasAnnotations = frameAnnotations.some(
-    (a) => annotationType === null || a.type === annotationType,
-  );
-
-  // Конвертация аннотаций в формат для preview сервиса
-  const convertAnnotationsToPrompt = (): AnnotationPrompt[] => {
-    // Получаем размеры видео из глобальной переменной
-    const videoDimensions = (window as any).__videoDimensions || {
-      width: 1920,
-      height: 1080,
-    };
-    const videoWidth = videoDimensions.width;
-    const videoHeight = videoDimensions.height;
-
-    // Размер канваса
-    const canvasWidth = 800;
-    const canvasHeight = 500;
-
-    // Простое масштабирование без letterbox
-    // Координаты с канваса масштабируются пропорционально размерам видео
-    const scaleX = videoWidth / canvasWidth;
-    const scaleY = videoHeight / canvasHeight;
-
-    return frameAnnotations.map((ann) => {
-      if (ann.type === "rect") {
-        return {
-          class_name: ann.label,
-          prompt: {
-            mode: "box",
-            boxes: [
-              [
-                Math.round(ann.x * scaleX),
-                Math.round(ann.y * scaleY),
-                Math.round((ann.x + (ann.width || 0)) * scaleX),
-                Math.round((ann.y + (ann.height || 0)) * scaleY),
-              ],
-            ],
-          },
-        };
-      } else {
-        return {
-          class_name: ann.label,
-          prompt: {
-            mode: "point",
-            point_coords: [
-              [Math.round(ann.x * scaleX), Math.round(ann.y * scaleY)],
-            ],
-            point_labels: [1],
-          },
-        };
-      }
-    });
-  };
-
-  // Генерация маски через preview сервис (только для первого кадра)
-  const handleGenerateMask = async () => {
-    if (!currentVideoFile) {
-      setMaskError("Файл видео не найден");
-      return;
-    }
-
-    if (currentFrame !== 0) {
-      setMaskError("Превью маски доступно только для первого кадра");
-      return;
-    }
-
-    const annotationsPrompt = convertAnnotationsToPrompt();
-    if (annotationsPrompt.length === 0) {
-      setMaskError("Добавьте хотя бы одну аннотацию");
-      return;
-    }
-
-    setIsGeneratingMask(true);
     setMaskError("");
 
     try {
-      const response = await previewService.generateMaskPreview(
-        currentVideoFile,
-        annotationsPrompt,
-      );
-      setMaskImage(response.imageUrl);
+      const dataUrl = await previewService.extractFirstFrame(file);
+      setFirstFrameUrl(dataUrl);
+      const img = new Image();
+      img.onload = () =>
+        setVideoDimensions({
+          width: img.naturalWidth,
+          height: img.naturalHeight,
+        });
+      img.src = dataUrl;
     } catch (err) {
-      setMaskError(
-        err instanceof Error ? err.message : "Ошибка генерации маски",
+      setVideoError("Не удалось извлечь первый кадр");
+    }
+  };
+
+  const startPolling = (id: string) => {
+    if (pollingRef.current) clearInterval(pollingRef.current);
+    const currentP = useStore.getState().trackingProgress || 0;
+    let tick =
+      currentP > 0
+        ? Math.round(-Math.log(1 - Math.min(currentP, 89) / 90) / 0.12)
+        : 0;
+    if (isNaN(tick) || tick < 0) tick = 0;
+
+    pollingRef.current = setInterval(async () => {
+      tick++;
+      const simProgress = Math.round(90 * (1 - Math.exp(-tick * 0.12)));
+      try {
+        const res = await fetch(`/api/v1/progress/${id}`);
+        const data = await res.json();
+        const actualProgress = data.progress ?? simProgress;
+        setTrackingProgress(
+          Math.max(actualProgress, useStore.getState().trackingProgress || 0),
+        );
+
+        if (data.status === "done") {
+          setTrackingStatus("done");
+          setTrackingProgress(100);
+          clearInterval(pollingRef.current!);
+        } else if (data.status === "error" || data.status === "cancelled") {
+          setTrackingStatus(data.status === "error" ? "error" : "idle");
+          clearInterval(pollingRef.current!);
+        }
+      } catch {
+        setTrackingProgress(simProgress);
+      }
+    }, 2000);
+  };
+
+  const handleGenerateMask = async () => {
+    if (!hasAnnotations || !firstFrameUrl) return;
+    setIsGeneratingMask(true);
+    setMaskError("");
+    try {
+      const res = await fetch(firstFrameUrl);
+      const blob = await res.blob();
+      const frameFile = new File([blob], "frame.jpg", { type: "image/jpeg" });
+      const scaleParams = calculateScaleParams(
+        CANVAS_W,
+        CANVAS_H,
+        videoDimensions?.width || 1920,
+        videoDimensions?.height || 1080,
       );
+      const prompt = annotationsToBackendFormat(
+        frameAnnotations,
+        0,
+        null,
+        scaleParams,
+      );
+
+      const response = await previewService.generateMaskPreview(
+        frameFile,
+        prompt,
+      );
+      await filePersistence.saveMask(response.blob);
+      setMaskImage(response.imageUrl);
+    } catch {
+      setMaskError("Ошибка генерации маски");
     } finally {
       setIsGeneratingMask(false);
     }
   };
 
-  // Очистка маски
-  const handleClearMask = () => {
-    setMaskImage(null);
-  };
+  const handleStartTracking = async () => {
+    setTrackingConfirm(false);
+    if (!currentVideoFile || !hasAnnotations) return;
+    setTrackingStatus("queued");
+    setTrackingError(null);
 
-  // Запуск трекинга с подтверждением
-  const handleStartTracking = () => {
-    if (skipDeleteConfirm) {
-      startProcessing();
-    } else {
-      setTrackingConfirm(true);
+    try {
+      const scaleParams = calculateScaleParams(
+        CANVAS_W,
+        CANVAS_H,
+        videoDimensions?.width || 1920,
+        videoDimensions?.height || 1080,
+      );
+      const prompt = annotationsToBackendFormat(
+        frameAnnotations,
+        0,
+        null,
+        scaleParams,
+      );
+      const formData = new FormData();
+      formData.append("file", currentVideoFile);
+      formData.append(
+        "metadata",
+        JSON.stringify({ type: exportFormat, prompt }),
+      );
+
+      const res = await fetch("/api/v1/tracking", {
+        method: "POST",
+        body: formData,
+      });
+      if (!res.ok) throw new Error();
+      const data = await res.json();
+      setTaskId(data.task_id);
+      startPolling(data.task_id);
+    } catch (err) {
+      setTrackingStatus("error");
+      setTrackingError("Ошибка запуска трекинга");
     }
   };
 
-  const confirmStartTracking = () => {
-    startProcessing();
-    setTrackingConfirm(false);
-  };
-
-  // Экспорт аннотаций в выбранном формате
-  const handleExport = () => {
-    // Получаем размеры видео для масштабирования координат
-    const videoDimensions = (window as any).__videoDimensions || {
-      width: 1920,
-      height: 1080,
-    };
-
-    // Вычисляем параметры масштабирования (канвас 800x500 -> видео)
-    const scaleParams = calculateScaleParams(
-      800,
-      500,
-      videoDimensions.width,
-      videoDimensions.height,
-    );
-
-    const json = exportAnnotationsToJson(
-      annotations,
-      currentFrame,
-      annotationType,
-      exportFormat,
-      scaleParams,
-    );
-    const blob = new Blob([json], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `annotations_frame_${currentFrame}.${exportFormat === "yolo" ? "txt" : exportFormat}`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
-  // Импорт аннотаций из JSON
-  const handleImport = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = (e) => {
+  const handleCancelTracking = async () => {
+    setCancelConfirm(false);
+    if (taskId)
       try {
-        const json = e.target?.result as string;
-        const importedAnnotations = importAnnotationsFromJson(
-          json,
-          currentFrame,
-        );
-        // Добавляем импортированные аннотации
-        for (const ann of importedAnnotations) {
-          addAnnotation(ann);
+        await fetch(`/api/v1/cancel/${taskId}`, { method: "POST" });
+      } catch {}
+    if (pollingRef.current) clearInterval(pollingRef.current);
+    setTrackingStatus("idle");
+    setTaskId(null);
+    setTrackingProgress(null);
+    setMaskImage(null);
+    filePersistence.clearMask();
+  };
+
+  const handleDownload = async () => {
+    if (!taskId) return;
+    try {
+      const res = await fetch(`/api/v1/download/${taskId}`);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `dataset_${taskId}.zip`;
+      a.click();
+    } catch {
+      setTrackingError("Ошибка скачивания");
+    }
+  };
+
+  const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const parsed: Array<{
+          class_name: string;
+          prompt: {
+            mode: string;
+            point_coords?: number[][];
+            boxes?: number[][];
+          };
+        }> = JSON.parse(ev.target?.result as string);
+        for (const item of parsed) {
+          const label = item.class_name;
+          if (!labels.includes(label)) {
+            if (labels.length < 5) addLabel(label);
+            else continue;
+          }
+          if (item.prompt.point_coords) {
+            for (const [x, y] of item.prompt.point_coords) {
+              addAnnotation({
+                id: Math.random().toString(36).substring(2, 11),
+                type: "point",
+                x,
+                y,
+                label,
+                frameId: 0,
+                color: "#fff",
+              });
+            }
+          }
+          if (item.prompt.boxes) {
+            for (const [x1, y1, x2, y2] of item.prompt.boxes) {
+              addAnnotation({
+                id: Math.random().toString(36).substring(2, 11),
+                type: "rect",
+                x: x1,
+                y: y1,
+                width: x2 - x1,
+                height: y2 - y1,
+                label,
+                frameId: 0,
+                color: "#fff",
+              });
+            }
+          }
         }
-      } catch (error) {
-        console.error("Ошибка импорта аннотаций:", error);
-        alert("Неверный формат JSON файла");
+      } catch {
+        alert("Ошибка JSON");
       }
     };
     reader.readAsText(file);
-    // Сбрасываем input для возможности повторной загрузки того же файла
-    event.target.value = "";
+    e.target.value = "";
   };
 
-  if (!currentFile) {
+  const handleResetVideo = () => {
+    if (pollingRef.current) clearInterval(pollingRef.current);
+    if (currentFile) URL.revokeObjectURL(currentFile);
+    filePersistence.clearAll();
+    reset();
+  };
+
+  if (!videoFileName && !firstFrameUrl) {
     return (
-      <div className="p-8 max-w-4xl mx-auto">
-        <h1 className="text-3xl font-bold mb-6">Разметка видео</h1>
+      <div className="p-8 max-w-2xl mx-auto">
+        <h1 className="text-3xl font-bold mb-3">Разметка видео</h1>
         <p className="text-muted-foreground mb-8">
-          Загрузите видеофайл для начала трекинга. Вы сможете разметить первый
-          кадр, а ML-ядро автоматически отследит объекты на всем видео.
+          Загрузите видеофайл, разметьте первый кадр — SAM 2 + XMem
+          автоматически соберёт датасет.
         </p>
         <UploadZone
-          label="Загрузить видео (MP4, AVI, MKV)"
+          label="Загрузить видео (MP4, AVI, MOV, MKV)"
           accept={{ "video/*": [] }}
           onUpload={handleUpload}
         />
@@ -725,83 +725,172 @@ const VideoAnnotation = () => {
     );
   }
 
+  const isTracking =
+    trackingStatus === "queued" || trackingStatus === "processing";
+
   return (
-    <div className="flex h-full p-6 gap-6 bg-gray-50">
-      {/* Левая панель - Инструменты */}
-      <div className="w-64 flex-shrink-0">
+    <div className="flex flex-col md:flex-row h-full p-3 md:p-4 gap-3 md:gap-4 bg-gray-50 overflow-hidden">
+      {/* МОБИЛЬНЫЙ ПЕРЕКЛЮЧАТЕЛЬ */}
+      <div className="md:hidden flex items-center justify-between bg-white rounded-lg shadow border px-4 py-3 shrink-0">
+        <div className="flex items-center gap-2">
+          <Menu size={18} className="text-gray-500" />
+          <span className="text-sm font-bold text-gray-700">Инструменты</span>
+        </div>
+        <button
+          onClick={() => setToolbarOpen(!toolbarOpen)}
+          className="text-xs font-bold text-blue-600 bg-blue-50 px-3 py-1.5 rounded-md transition-colors active:scale-95"
+        >
+          {toolbarOpen ? "Скрыть" : "Показать"}
+        </button>
+      </div>
+
+      <div
+        className={cn(
+          "w-fit shrink-0 overflow-hidden transition-all",
+          toolbarOpen ? "block" : "hidden md:block",
+        )}
+      >
         <Toolbar
-          labels={labels}
-          selectedLabel={selectedLabel}
-          setSelectedLabel={setSelectedLabel}
-          addLabel={addLabel}
-          removeLabel={removeLabel}
-          skipDeleteConfirm={skipDeleteConfirm}
-          setSkipDeleteConfirm={setSkipDeleteConfirm}
-          frameAnnotations={frameAnnotations}
-          annotationsByLabel={annotationsByLabel}
-          currentFrame={currentFrame}
-          removeAnnotation={removeAnnotation}
-          removeAnnotationsByFrame={removeAnnotationsByFrame}
           highlightedAnnotationId={highlightedAnnotationId}
           setHighlightedAnnotationId={setHighlightedAnnotationId}
-          annotationType={annotationType}
-          setAnnotationType={setAnnotationType}
         />
       </div>
 
-      {/* Центральная часть - Канвас */}
-      <div className="flex-1 flex flex-col gap-4">
-        <div className="bg-white rounded-lg shadow p-1 flex justify-between items-center border">
-          <div className="text-sm font-medium px-4">
-            Frame: {currentFrame} / {totalFrames}
+      <div className="flex-1 flex flex-col gap-3 min-w-0 overflow-hidden">
+        {/* Инфо-панель */}
+        <div className="bg-white rounded-lg shadow border px-4 py-2 flex items-center justify-between text-sm shrink-0">
+          <div className="flex items-center gap-4 truncate">
+            <span className="font-bold text-gray-700 truncate">
+              {videoFileName}
+            </span>
+            {videoDimensions && (
+              <span className="text-muted-foreground text-xs hidden sm:inline">
+                {videoDimensions.width} × {videoDimensions.height}
+              </span>
+            )}
           </div>
-          {processingProgress === 100 && (
-            <div className="flex items-center gap-2">
-              <input
-                type="range"
-                min="0"
-                max={totalFrames}
-                value={currentFrame}
-                onChange={(e) => setCurrentFrame(Number(e.target.value))}
-                className="w-64"
-              />
-            </div>
-          )}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleResetVideo}
+            className="ml-4 h-8 shrink-0"
+          >
+            Сменить видео
+          </Button>
         </div>
 
-        {/* Панель действий - горизонтально */}
-        <div className="bg-white rounded-lg shadow p-3 border flex items-center gap-4">
-          {/* Экспорт/Импорт */}
-          <div className="flex items-center gap-2">
+        {/* Панель действий */}
+        <div className="bg-white rounded-lg shadow border px-4 py-3 flex items-center gap-3 shrink-0">
+          <div className="flex items-center gap-3 flex-1 overflow-x-auto no-scrollbar">
             <select
               value={exportFormat}
-              onChange={(e) =>
-                setExportFormat(
-                  e.target.value as "json" | "yolo" | "coco" | "voc",
-                )
-              }
-              className="text-sm border rounded-md px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-primary"
+              onChange={(e) => setExportFormat(e.target.value as ExportFormat)}
+              disabled={trackingStatus !== "idle"}
+              className="text-sm border rounded-md px-2 py-2 outline-none focus:ring-1 focus:ring-primary shrink-0"
             >
-              <option value="json">JSON</option>
               <option value="yolo">YOLO</option>
               <option value="coco">COCO</option>
               <option value="voc">VOC</option>
             </select>
+
+            {trackingStatus === "idle" && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-9 gap-2 shrink-0"
+                onClick={handleGenerateMask}
+                disabled={isGeneratingMask || !hasAnnotations}
+              >
+                {isGeneratingMask ? (
+                  <Loader2 className="animate-spin w-4 h-4" />
+                ) : (
+                  <Wand2 className="w-4 h-4" />
+                )}{" "}
+                Превью маски
+              </Button>
+            )}
+
+            {maskImage && trackingStatus === "idle" && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-9 shrink-0"
+                onClick={() => setMaskImage(null)}
+              >
+                Скрыть маску
+              </Button>
+            )}
+
+            <div className="h-6 w-px bg-gray-200 shrink-0" />
+
+            {trackingStatus === "idle" && (
+              <Button
+                size="sm"
+                className="bg-blue-600 hover:bg-blue-700 text-white h-9 px-4 gap-2 shrink-0"
+                onClick={() =>
+                  skipDeleteConfirm
+                    ? handleStartTracking()
+                    : setTrackingConfirm(true)
+                }
+                disabled={
+                  !hasAnnotations || !annotationType || !currentVideoFile
+                }
+              >
+                <Play size={14} /> Запустить трекинг
+              </Button>
+            )}
+
+            {isTracking && (
+              <div className="flex items-center gap-3 shrink-0 px-1">
+                <Loader2 className="w-5 h-5 animate-spin text-blue-600" />
+                <span className="text-base font-bold text-blue-600">
+                  {trackingProgress || 0}%
+                </span>
+                <div className="h-6 w-px bg-gray-200 mx-1" />
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8 border-gray-300"
+                  onClick={() => setCancelConfirm(true)}
+                >
+                  Отмена
+                </Button>
+              </div>
+            )}
+
+            {trackingStatus === "done" && (
+              <div className="flex items-center gap-3 shrink-0">
+                <span className="text-green-600 text-sm font-bold flex items-center gap-1.5">
+                  <div className="w-2 h-2 rounded-full bg-green-600 animate-pulse" />{" "}
+                  Готово
+                </span>
+                <Button
+                  size="sm"
+                  className="bg-green-600 text-white h-9 px-4 shrink-0 gap-2"
+                  onClick={handleDownload}
+                >
+                  <Download size={14} /> Скачать датасет
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-9 shrink-0"
+                  onClick={handleCancelTracking}
+                >
+                  Новый трекинг
+                </Button>
+              </div>
+            )}
+          </div>
+
+          <div className="shrink-0 border-l pl-3">
             <Button
               variant="outline"
               size="sm"
-              className="gap-2"
-              onClick={handleExport}
-            >
-              <Download size={14} /> Экспорт
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              className="gap-2"
+              className="text-xs h-8"
               onClick={() => document.getElementById("import-file")?.click()}
             >
-              <Upload size={14} /> Импорт
+              Импорт JSON
             </Button>
             <input
               id="import-file"
@@ -811,170 +900,130 @@ const VideoAnnotation = () => {
               className="hidden"
             />
           </div>
-
-          <div className="h-6 w-px bg-gray-200" />
-
-          {/* Запуск трекинга */}
-          {!isProcessing && processingProgress === 0 && (
-            <Button
-              size="sm"
-              className="gap-2"
-              onClick={handleStartTracking}
-              disabled={!hasAnnotations}
-            >
-              <Play size={14} /> Запустить Трекинг
-            </Button>
-          )}
-
-          {isProcessing && (
-            <div className="flex items-center gap-3">
-              <span className="text-sm font-medium">Обработка...</span>
-              <div className="w-32 h-2.5 bg-gray-200 rounded-full overflow-hidden border border-gray-300">
-                <div
-                  className="h-full bg-primary transition-all duration-300"
-                  style={{ width: `${processingProgress}%` }}
-                />
-              </div>
-              <span className="text-xs font-medium text-primary w-10 text-right">
-                {processingProgress}%
-              </span>
-            </div>
-          )}
-
-          {!isProcessing && processingProgress === 100 && (
-            <div className="flex items-center gap-2">
-              <span className="text-green-600 text-sm font-medium flex items-center gap-1">
-                <div className="w-2 h-2 rounded-full bg-green-600" /> Готово
-              </span>
-              <Button variant="outline" size="sm" className="gap-2">
-                <Save size={14} /> Сохранить
-              </Button>
-              <Button variant="secondary" size="sm" className="gap-2">
-                <Download size={14} /> YOLO
-              </Button>
-            </div>
-          )}
-
-          {/* Индикатор формата экспорта */}
-          <div className="ml-auto text-xs text-muted-foreground">
-            Экспорт:{" "}
-            <strong className="text-primary">
-              {annotationType === "rect"
-                ? "рамки"
-                : annotationType === "point"
-                  ? "точки"
-                  : "все"}
-            </strong>
-          </div>
         </div>
 
-        {/* Первый кадр из видео */}
-        <div className="flex-1 min-h-[500px] flex items-center justify-center border-2 border-dashed border-gray-300 rounded-lg bg-gray-200">
-          {videoError ? (
-            <div className="text-center text-destructive">
-              <p className="font-medium">{videoError}</p>
-              <p className="text-sm text-muted-foreground mt-1">
-                Попробуйте загрузить другое видео
-              </p>
-            </div>
-          ) : firstFrameUrl ? (
-            <Annotator
-              imageUrl={firstFrameUrl}
-              width={800}
-              height={500}
-              highlightedAnnotationId={highlightedAnnotationId}
-              maskImageUrl={currentFrame === 0 ? maskImage : null}
-            />
+        {maskError && (
+          <p className="text-xs text-destructive bg-red-50 border p-2 rounded">
+            {maskError}
+          </p>
+        )}
+        {videoError && (
+          <p className="text-xs text-destructive bg-red-50 border p-2 rounded">
+            {videoError}
+          </p>
+        )}
+
+        {/* Канвас */}
+        <div
+          ref={canvasContainerRef}
+          className="w-full md:flex-1 flex items-center justify-center border-2 border-dashed border-gray-300 rounded-lg bg-gray-200 overflow-hidden relative"
+        >
+          {firstFrameUrl ? (
+            <>
+              <Annotator
+                imageUrl={firstFrameUrl}
+                width={CANVAS_W}
+                height={CANVAS_H}
+                scale={canvasScale}
+                highlightedAnnotationId={highlightedAnnotationId}
+                maskImageUrl={maskImage}
+              />
+              {!isRestoring &&
+                !currentVideoFile &&
+                trackingStatus === "idle" && (
+                  <div className="absolute inset-0 bg-black/40 backdrop-blur-[1px] flex items-center justify-center z-50">
+                    <div className="bg-white p-8 rounded-xl shadow-2xl max-w-sm text-center mx-4 border">
+                      <div className="w-16 h-16 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center mx-auto mb-4">
+                        <Upload size={32} />
+                      </div>
+                      <h3 className="font-bold text-xl text-gray-900 mb-2">
+                        Файл не выбран
+                      </h3>
+                      <p className="text-sm text-gray-500 mb-6">
+                        После перезагрузки страницы нужно снова выбрать
+                        видеофайл <strong>{videoFileName}</strong> для запуска
+                        трекинга.
+                      </p>
+                      <input
+                        type="file"
+                        id="re-upload"
+                        className="hidden"
+                        accept="video/*"
+                        onChange={(e) =>
+                          e.target.files?.[0] && handleUpload(e.target.files[0])
+                        }
+                      />
+                      <Button
+                        size="lg"
+                        className="w-full bg-blue-600 text-white font-bold shadow-lg shadow-primary/20"
+                        onClick={() =>
+                          document.getElementById("re-upload")?.click()
+                        }
+                      >
+                        Выбрать видео
+                      </Button>
+                    </div>
+                  </div>
+                )}
+            </>
           ) : (
-            <div className="text-center text-muted-foreground">
-              <p>Загрузите видео для начала разметки</p>
+            <div className="text-center text-muted-foreground flex flex-col items-center gap-3">
+              <Loader2 className="w-10 h-10 animate-spin text-primary/40" />
+              <p className="font-medium text-lg">Извлечение кадра...</p>
             </div>
           )}
         </div>
 
-        {/* Панель управления маской (только для первого кадра) */}
-        {currentFrame === 0 && frameAnnotations.length > 0 && (
-          <div className="bg-white rounded-lg shadow p-3 border flex items-center gap-4">
-            <Button
-              variant="default"
-              size="sm"
-              className="gap-2"
-              onClick={handleGenerateMask}
-              disabled={isGeneratingMask}
-            >
-              {isGeneratingMask ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                <Wand2 className="w-4 h-4" />
-              )}
-              {isGeneratingMask ? "Генерация..." : "Создать превью маски"}
-            </Button>
-
-            {maskImage && (
-              <>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="gap-2"
-                  onClick={handleClearMask}
-                >
-                  Скрыть маску
-                </Button>
-                <span className="text-xs text-green-600 flex items-center gap-1">
-                  <div className="w-2 h-2 rounded-full bg-green-600" />
-                  Маска сгенерирована
-                </span>
-              </>
-            )}
-
-            {maskError && (
-              <span className="text-xs text-destructive">{maskError}</span>
-            )}
-
-            <div className="ml-auto text-xs text-muted-foreground">
-              Превью маски для первого кадра
-            </div>
-          </div>
+        {/* Подсказки */}
+        {firstFrameUrl &&
+          !currentVideoFile &&
+          trackingStatus === "idle" &&
+          !isRestoring && (
+            <p className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded px-3 py-2 text-center shrink-0">
+              Видео не загружено. Нажмите «Сменить видео» и загрузите файл
+              снова, чтобы запустить трекинг.
+            </p>
+          )}
+        {hasAnnotations && trackingStatus === "idle" && !annotationType && (
+          <p className="text-xs text-amber-600 text-center shrink-0">
+            Выберите тип разметки (рамки или точки) для запуска трекинга
+          </p>
         )}
       </div>
 
-      {/* Диалог подтверждения запуска трекинга */}
+      {/* ДИАЛОГИ ПОДТВЕРЖДЕНИЯ */}
       {trackingConfirm && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white p-6 rounded-lg shadow-lg max-w-sm">
-            <h3 className="font-semibold text-lg mb-2">Запуск трекинга</h3>
-            <p className="text-sm text-gray-600 mb-4">
-              Начать трекинг объектов на видео?
+        <ConfirmDialog
+          title="Запустить трекинг?"
+          confirmLabel="Подтвердить"
+          confirmVariant="default"
+          body={
+            <>
+              Видео будет отправлено на сервер для обработки. Это может занять
+              несколько минут.
               <br />
-              <span className="text-xs text-muted-foreground">
-                Формат разметки:{" "}
-                <strong>
-                  {annotationType === "rect"
-                    ? "рамки (box)"
-                    : annotationType === "point"
-                      ? "точки (point)"
-                      : "все типы"}
-                </strong>
+              <span className="text-[11px] text-muted-foreground mt-2 block">
+                Формат датасета: <strong>{exportFormat.toUpperCase()}</strong>
+                {" · "}
+                Тип аннотаций:{" "}
+                <strong>{annotationType === "rect" ? "рамки" : "точки"}</strong>
               </span>
-            </p>
-            <div className="flex gap-2">
-              <Button
-                variant="default"
-                onClick={confirmStartTracking}
-                className="flex-1"
-              >
-                Запустить
-              </Button>
-              <Button
-                variant="outline"
-                onClick={() => setTrackingConfirm(false)}
-                className="flex-1"
-              >
-                Отмена
-              </Button>
-            </div>
-          </div>
-        </div>
+            </>
+          }
+          onConfirm={handleStartTracking}
+          onCancel={() => setTrackingConfirm(false)}
+        />
+      )}
+
+      {cancelConfirm && (
+        <ConfirmDialog
+          title="Отменить трекинг?"
+          body="Вы уверены? Прогресс обработки на сервере будет потерян."
+          confirmVariant="destructive"
+          confirmLabel="Прервать"
+          onConfirm={handleCancelTracking}
+          onCancel={() => setCancelConfirm(false)}
+        />
       )}
     </div>
   );

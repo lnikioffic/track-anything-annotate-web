@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 pub enum TrackingType {
     Coco,
     Yolo,
-    Yoc,
+    Voc,
 }
 
 #[derive(Deserialize, Serialize, Debug)]

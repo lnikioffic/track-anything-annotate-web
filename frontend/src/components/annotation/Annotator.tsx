@@ -7,77 +7,68 @@ import {
   Image as KonvaImage,
   Text,
 } from "react-konva";
-import { useStore } from "../../store/annotationStore";
-import { useImageAnnotationStore } from "../../store/imageAnnotationStore";
+import { useStore, ANNOTATION_COLORS } from "../../store/annotationStore";
 import { generateId } from "../../lib/utils";
 import type { KonvaEventObject } from "konva/lib/Node";
 import type { Stage as StageType } from "konva/lib/Stage";
-
-const colors = ["#EF4444", "#3B82F6", "#10B981", "#F59E0B", "#8B5CF6"];
 
 interface AnnotatorProps {
   imageUrl: string;
   width: number;
   height: number;
+  scale?: number;
   highlightedAnnotationId: string | null;
-  imageIndex?: number; // для фото режима
-  maskImageUrl?: string | null; // URL маски для отображения поверх изображения
+  maskImageUrl?: string | null;
 }
 
 const Annotator: React.FC<AnnotatorProps> = ({
   imageUrl,
   width,
   height,
+  scale = 1,
   highlightedAnnotationId,
-  imageIndex,
   maskImageUrl,
 }) => {
-  const [image, setImage] = useState<HTMLImageElement | null>(null);
-  const [maskImage, setMaskImage] = useState<HTMLImageElement | null>(null);
+  const [image, setImage] = useState<HTMLImageElement | undefined>(undefined);
+  const [maskImage, setMaskImage] = useState<HTMLImageElement | undefined>(
+    undefined,
+  );
 
-  // Загружаем изображение
   React.useEffect(() => {
-    if (!imageUrl) {
-      setImage(null);
-      return;
-    }
-
+    if (!imageUrl) { setImage(undefined); return; }
+    let cancelled = false;
     const img = new Image();
+    img.onload = () => { if (!cancelled) setImage(img); };
+    img.onerror = () => { if (!cancelled) setImage(undefined); };
     img.src = imageUrl;
-    img.onload = () => setImage(img);
-    img.onerror = () => setImage(null);
+    // data URL может быть уже complete к моменту назначения onload
+    if (img.complete && img.naturalWidth > 0 && !cancelled) setImage(img);
+    return () => { cancelled = true; };
   }, [imageUrl]);
 
-  // Загружаем маску
   React.useEffect(() => {
-    if (!maskImageUrl) {
-      setMaskImage(null);
-      return;
-    }
-
+    if (!maskImageUrl) { setMaskImage(undefined); return; }
+    let cancelled = false;
     const img = new Image();
+    img.onload = () => { if (!cancelled) setMaskImage(img); };
+    img.onerror = () => { if (!cancelled) setMaskImage(undefined); };
     img.src = maskImageUrl;
-    img.onload = () => setMaskImage(img);
-    img.onerror = () => setMaskImage(null);
+    if (img.complete && img.naturalWidth > 0 && !cancelled) setMaskImage(img);
+    return () => { cancelled = true; };
   }, [maskImageUrl]);
 
-  // Определяем какой store использовать
-  const isImageMode = imageIndex !== undefined;
-  const videoStore = useStore();
-  const imageStore = useImageAnnotationStore();
-
-  const store = isImageMode ? imageStore : videoStore;
   const {
-    tool,
+    annotationType: tool,
     selectedLabel,
     addAnnotation,
     updateAnnotation,
     annotations,
     labels,
-  } = store;
+    currentFrame,
+  } = useStore();
 
-  // Вычисляем цвет для текущего label
-  const currentColor = colors[labels.indexOf(selectedLabel) % colors.length];
+  const currentColor =
+    ANNOTATION_COLORS[labels.indexOf(selectedLabel) % ANNOTATION_COLORS.length];
 
   const [newAnnotation, setNewAnnotation] = useState<{
     x: number;
@@ -87,49 +78,40 @@ const Annotator: React.FC<AnnotatorProps> = ({
   } | null>(null);
   const isDrawing = useRef(false);
   const stageRef = useRef<StageType>(null);
-  const [, selectAnnotation] = useState<string | null>(null);
   const [showLimitWarning, setShowLimitWarning] = useState(false);
 
   const MAX_ANNOTATIONS = 10;
 
-  // Фильтруем аннотации для текущего изображения/кадра
-  const currentId = isImageMode ? imageIndex : videoStore.currentFrame;
-  const visibleAnnotations = annotations.filter((a) => a.frameId === currentId);
+  const visibleAnnotations = annotations.filter(
+    (a) => a.frameId === currentFrame,
+  );
 
-  const handleMouseDown = (e: KonvaEventObject<MouseEvent>) => {
-    if (tool === "select") {
-      const clickedOnEmpty = e.target === e.target.getStage();
-      if (clickedOnEmpty) selectAnnotation(null);
-      return;
-    }
+  // getPointerPosition() returns CSS pixels on the stage DOM element.
+  // Divide by scale to convert to logical canvas coordinates.
+  const getLogicalPos = (e: KonvaEventObject<MouseEvent | TouchEvent>) => {
+    const stage = e.target.getStage();
+    if (!stage) return null;
+    const pos = stage.getPointerPosition();
+    if (!pos) return null;
+    return { x: pos.x / scale, y: pos.y / scale };
+  };
 
-    // Блокируем добавление без выбранного класса
-    if (!selectedLabel) {
-      console.warn("Нельзя добавить аннотацию без выбранного класса");
-      return;
-    }
-
-    // Блокируем добавление при достижении лимита
+  const handlePointerDown = (e: KonvaEventObject<MouseEvent | TouchEvent>) => {
+    if (!tool) return;
+    if (!selectedLabel) return;
     if (visibleAnnotations.length >= MAX_ANNOTATIONS) {
       setShowLimitWarning(true);
       setTimeout(() => setShowLimitWarning(false), 3000);
       return;
     }
 
-    const stage = e.target.getStage();
-    if (!stage) return;
-    const pos = stage.getPointerPosition();
+    const pos = getLogicalPos(e);
     if (!pos) return;
 
     isDrawing.current = true;
 
     if (tool === "rect") {
-      setNewAnnotation({
-        x: Math.round(pos.x),
-        y: Math.round(pos.y),
-        w: 0,
-        h: 0,
-      });
+      setNewAnnotation({ x: Math.round(pos.x), y: Math.round(pos.y), w: 0, h: 0 });
     } else if (tool === "point") {
       addAnnotation({
         id: generateId(),
@@ -137,46 +119,38 @@ const Annotator: React.FC<AnnotatorProps> = ({
         x: Math.round(pos.x),
         y: Math.round(pos.y),
         label: selectedLabel,
-        frameId: currentId,
-        color: "#fff", // цвет переопределится в сторе
+        frameId: currentFrame,
+        color: "#fff",
       });
       isDrawing.current = false;
     }
   };
 
-  const handleMouseMove = (e: KonvaEventObject<MouseEvent>) => {
+  const handlePointerMove = (e: KonvaEventObject<MouseEvent | TouchEvent>) => {
     if (!isDrawing.current || tool !== "rect" || !newAnnotation) return;
-
-    const stage = e.target.getStage();
-    if (!stage) return;
-    const point = stage.getPointerPosition();
-    if (!point) return;
-
+    const pos = getLogicalPos(e);
+    if (!pos) return;
     setNewAnnotation((prev) => ({
       ...prev!,
-      w: Math.round(point.x - prev!.x),
-      h: Math.round(point.y - prev!.y),
+      w: Math.round(pos.x - prev!.x),
+      h: Math.round(pos.y - prev!.y),
     }));
   };
 
-  const handleMouseUp = () => {
+  const handlePointerUp = () => {
     if (isDrawing.current && tool === "rect" && newAnnotation) {
-      // Игнорируем слишком маленькие боксы
-      if (Math.abs(newAnnotation.w) > 5 && Math.abs(newAnnotation.h) > 5) {
-        // Блокируем добавление без выбранного класса
-        if (selectedLabel) {
-          addAnnotation({
-            id: generateId(),
-            type: "rect",
-            x: Math.round(newAnnotation.x),
-            y: Math.round(newAnnotation.y),
-            width: Math.round(newAnnotation.w),
-            height: Math.round(newAnnotation.h),
-            label: selectedLabel,
-            frameId: currentId,
-            color: "#fff",
-          });
-        }
+      if (Math.abs(newAnnotation.w) > 5 && Math.abs(newAnnotation.h) > 5 && selectedLabel) {
+        addAnnotation({
+          id: generateId(),
+          type: "rect",
+          x: Math.round(newAnnotation.x),
+          y: Math.round(newAnnotation.y),
+          width: Math.round(newAnnotation.w),
+          height: Math.round(newAnnotation.h),
+          label: selectedLabel,
+          frameId: currentFrame,
+          color: "#fff",
+        });
       }
     }
     setNewAnnotation(null);
@@ -186,15 +160,19 @@ const Annotator: React.FC<AnnotatorProps> = ({
   return (
     <div className="relative bg-gray-100 rounded-lg overflow-hidden border shadow-inner">
       <Stage
-        width={width}
-        height={height}
-        onMouseDown={handleMouseDown}
-        onMouseMove={handleMouseMove}
-        onMouseUp={handleMouseUp}
+        width={width * scale}
+        height={height * scale}
+        scaleX={scale}
+        scaleY={scale}
+        onMouseDown={(e) => handlePointerDown(e as KonvaEventObject<MouseEvent | TouchEvent>)}
+        onMouseMove={(e) => handlePointerMove(e as KonvaEventObject<MouseEvent | TouchEvent>)}
+        onMouseUp={handlePointerUp}
+        onTouchStart={(e) => handlePointerDown(e as KonvaEventObject<MouseEvent | TouchEvent>)}
+        onTouchMove={(e) => handlePointerMove(e as KonvaEventObject<MouseEvent | TouchEvent>)}
+        onTouchEnd={handlePointerUp}
         ref={stageRef}
       >
         <Layer>
-          {/* Если есть маска, показываем её, иначе оригинальное изображение */}
           <KonvaImage
             image={maskImageUrl && maskImage ? maskImage : image}
             width={width}
@@ -206,7 +184,6 @@ const Annotator: React.FC<AnnotatorProps> = ({
             if (ann.type === "rect") {
               return (
                 <React.Fragment key={ann.id}>
-                  {/* Подсветка при наведении */}
                   {isHighlighted && (
                     <Rect
                       x={ann.x - 3}
@@ -226,15 +203,14 @@ const Annotator: React.FC<AnnotatorProps> = ({
                     height={ann.height}
                     stroke={ann.color}
                     strokeWidth={isHighlighted ? 4 : 2}
-                    draggable={tool === "select"}
-                    onDragEnd={(e) => {
+                    draggable={!tool}
+                    onDragEnd={(e) =>
                       updateAnnotation(ann.id, {
                         x: Math.round(e.target.x()),
                         y: Math.round(e.target.y()),
-                      });
-                    }}
+                      })
+                    }
                   />
-                  {/* Метка класса для рамки */}
                   <Rect
                     x={ann.x}
                     y={ann.y - 20}
@@ -254,7 +230,6 @@ const Annotator: React.FC<AnnotatorProps> = ({
             } else {
               return (
                 <React.Fragment key={ann.id}>
-                  {/* Подсветка при наведении */}
                   {isHighlighted && (
                     <Circle
                       x={ann.x}
@@ -271,16 +246,14 @@ const Annotator: React.FC<AnnotatorProps> = ({
                     y={ann.y}
                     radius={5}
                     fill={ann.color}
-                    draggable={tool === "select"}
-                    onClick={() => selectAnnotation(ann.id)}
-                    onDragEnd={(e) => {
+                    draggable={!tool}
+                    onDragEnd={(e) =>
                       updateAnnotation(ann.id, {
                         x: Math.round(e.target.x()),
                         y: Math.round(e.target.y()),
-                      });
-                    }}
+                      })
+                    }
                   />
-                  {/* Метка класса для точки */}
                   <Text
                     text={ann.label}
                     x={ann.x + 10}
@@ -308,22 +281,8 @@ const Annotator: React.FC<AnnotatorProps> = ({
         </Layer>
       </Stage>
 
-      {/* Уведомление о достижении лимита */}
       {showLimitWarning && (
-        <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-amber-500 text-white px-4 py-2 rounded-lg shadow-lg flex items-center gap-2 animate-fade-in z-50">
-          <svg
-            className="w-5 h-5"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
-            />
-          </svg>
+        <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-amber-500 text-white px-4 py-2 rounded-lg shadow-lg flex items-center gap-2 z-50">
           <span className="font-medium">
             Максимум {MAX_ANNOTATIONS} аннотаций на кадр
           </span>

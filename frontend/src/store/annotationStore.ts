@@ -1,200 +1,214 @@
 import { create } from "zustand";
+import { persist } from "zustand/middleware";
 
 export type ShapeType = "rect" | "point";
+export type TrackingStatus =
+  | "idle"
+  | "queued"
+  | "processing"
+  | "done"
+  | "error";
+export type ExportFormat = "yolo" | "coco" | "voc";
 
 export interface Annotation {
   id: string;
   type: ShapeType;
   x: number;
   y: number;
-  width?: number; // only for rect
-  height?: number; // only for rect
+  width?: number;
+  height?: number;
   label: string;
-  frameId?: number; // for video
+  frameId: number;
   color: string;
 }
 
+export const ANNOTATION_COLORS = [
+  "#EF4444",
+  "#3B82F6",
+  "#10B981",
+  "#F59E0B",
+  "#8B5CF6",
+];
+const MAX_LABELS = 5;
+
 interface AppState {
   currentFile: string | null;
-  fileType: "video" | "image" | null;
-  isPlaying: boolean;
-  currentFrame: number;
-  totalFrames: number;
-  annotations: Annotation[];
-  selectedLabel: string;
-  labels: string[];
-  tool: ShapeType | "select";
-  processingProgress: number;
-  isProcessing: boolean;
-  skipDeleteConfirm: boolean;
-  annotationType: ShapeType | null; // null = не выбран, только один тип может быть активен
-  maskImage: string | null;
   currentVideoFile: File | null;
   firstFrameUrl: string | null;
+  videoDimensions: { width: number; height: number } | null;
+  currentFrame: number;
+  videoFileName: string | null;
+  annotations: Annotation[];
+  labels: string[];
+  selectedLabel: string;
+  annotationType: ShapeType | null;
+  skipDeleteConfirm: boolean;
+  maskImage: string | null;
+  taskId: string | null;
+  trackingStatus: TrackingStatus;
+  trackingError: string | null;
+  trackingProgress: number | null;
 
-  setFile: (file: string, type: "video" | "image") => void;
+  setFile: (
+    url: string | null,
+    file: File | null,
+    fileName: string | null,
+  ) => void;
+  setCurrentVideoFile: (file: File | null) => void;
+  setFirstFrameUrl: (url: string | null) => void;
+  setVideoDimensions: (dims: { width: number; height: number } | null) => void;
+  setVideoFileName: (name: string | null) => void;
   addAnnotation: (annotation: Annotation) => void;
   updateAnnotation: (id: string, data: Partial<Annotation>) => void;
   removeAnnotation: (id: string) => void;
   removeAnnotationsByFrame: (frameId: number) => void;
-  removeAnnotationsByLabel: (label: string, frameId?: number) => void;
-  setCurrentFrame: (frame: number) => void;
-  setSelectedLabel: (label: string) => void;
-  setTool: (tool: ShapeType | "select") => void;
-  setAnnotationType: (type: ShapeType | null) => void;
+  removeAnnotationsByLabel: (label: string) => void;
   addLabel: (label: string) => boolean;
   removeLabel: (label: string) => void;
+  setSelectedLabel: (label: string) => void;
+  setAnnotationType: (type: ShapeType | null) => void;
   setSkipDeleteConfirm: (skip: boolean) => void;
-  startProcessing: () => void;
-  setMaskImage: (imageUrl: string | null) => void;
-  setCurrentVideoFile: (file: File | null) => void;
-  setFirstFrameUrl: (url: string | null) => void;
+  setMaskImage: (url: string | null) => void;
+  setTaskId: (id: string | null) => void;
+  setTrackingStatus: (status: TrackingStatus) => void;
+  setTrackingError: (err: string | null) => void;
+  setTrackingProgress: (progress: number | null) => void;
   reset: () => void;
 }
 
-const MAX_LABELS = 5;
-const colors = ["#EF4444", "#3B82F6", "#10B981", "#F59E0B", "#8B5CF6"];
-
-export const useStore = create<AppState>((set, get) => ({
-  currentFile: null,
-  fileType: null,
-  isPlaying: false,
-  currentFrame: 0,
-  totalFrames: 100, // Mock total
-  annotations: [],
-  selectedLabel: "",
-  labels: [],
-  tool: "select",
-  processingProgress: 0,
-  isProcessing: false,
-  skipDeleteConfirm: false,
-  annotationType: null,
-  maskImage: null,
-  currentVideoFile: null,
-  firstFrameUrl: null,
-
-  setFile: (file, type) =>
-    set({
-      currentFile: file,
-      fileType: type,
-      annotations: [],
-      processingProgress: 0,
-      isProcessing: false,
-      annotationType: null, // Сбрасываем тип аннотации при загрузке нового файла
-      maskImage: null,
-      currentVideoFile: null,
-      firstFrameUrl: null,
-    }),
-
-  addAnnotation: (ann) =>
-    set((state) => {
-      const color =
-        colors[state.labels.indexOf(state.selectedLabel) % colors.length];
-      // Устанавливаем тип аннотации при добавлении первой аннотации
-      const newAnnotationType = state.annotationType || ann.type;
-      return {
-        annotations: [...state.annotations, { ...ann, color }],
-        annotationType: newAnnotationType,
-      };
-    }),
-
-  setAnnotationType: (type) =>
-    set({
-      annotationType: type,
-      tool: type as ShapeType,
-    }),
-
-  updateAnnotation: (id, data) =>
-    set((state) => ({
-      annotations: state.annotations.map((a) =>
-        a.id === id ? { ...a, ...data } : a,
-      ),
-    })),
-
-  removeAnnotation: (id) =>
-    set((state) => ({
-      annotations: state.annotations.filter((a) => a.id !== id),
-    })),
-
-  removeAnnotationsByFrame: (frameId) =>
-    set((state) => ({
-      annotations: state.annotations.filter((a) => a.frameId !== frameId),
-    })),
-
-  removeAnnotationsByLabel: (label, frameId) =>
-    set((state) => ({
-      annotations: state.annotations.filter(
-        (a) =>
-          a.label !== label || (frameId !== undefined && a.frameId !== frameId),
-      ),
-    })),
-
-  setCurrentFrame: (frame) => set({ currentFrame: frame }),
-  setSelectedLabel: (label) => set({ selectedLabel: label }),
-  setTool: (tool) => set({ tool }),
-  setSkipDeleteConfirm: (skip) => set({ skipDeleteConfirm: skip }),
-
-  addLabel: (label) => {
-    const state = get();
-    // Проверка на существование
-    if (state.labels.includes(label)) {
-      return false;
-    }
-    // Проверка лимита
-    if (state.labels.length >= MAX_LABELS) {
-      return false;
-    }
-    // Добавление класса и автоматический выбор
-    set((state) => ({
-      labels: [...state.labels, label],
-      selectedLabel: label, // Автоматически выбираем добавленный класс
-    }));
-    return true;
-  },
-
-  removeLabel: (label) =>
-    set((state) => {
-      const newLabels = state.labels.filter((l) => l !== label);
-      // Удаляем все аннотации этого класса
-      const newAnnotations = state.annotations.filter((a) => a.label !== label);
-      return {
-        labels: newLabels,
-        annotations: newAnnotations,
-        selectedLabel:
-          state.selectedLabel === label
-            ? newLabels[0] || ""
-            : state.selectedLabel,
-      };
-    }),
-
-  startProcessing: () => {
-    set({ isProcessing: true });
-    let progress = 0;
-    const interval = setInterval(() => {
-      progress += 5;
-      set({ processingProgress: progress });
-      if (progress >= 100) {
-        clearInterval(interval);
-        set({ isProcessing: false });
-      }
-    }, 500); // Simulate backend processing
-  },
-
-  setMaskImage: (imageUrl) => set({ maskImage: imageUrl }),
-
-  setCurrentVideoFile: (file) => set({ currentVideoFile: file }),
-
-  setFirstFrameUrl: (url) => set({ firstFrameUrl: url }),
-
-  reset: () =>
-    set({
+export const useStore = create<AppState>()(
+  persist(
+    (set, get) => ({
       currentFile: null,
-      annotations: [],
-      isProcessing: false,
-      processingProgress: 0,
-      annotationType: null,
-      maskImage: null,
       currentVideoFile: null,
       firstFrameUrl: null,
+      videoDimensions: null,
+      currentFrame: 0,
+      videoFileName: null,
+      annotations: [],
+      labels: [],
+      selectedLabel: "",
+      annotationType: null,
+      skipDeleteConfirm: false,
+      maskImage: null,
+      taskId: null,
+      trackingStatus: "idle",
+      trackingError: null,
+      trackingProgress: null,
+
+      setFile: (url, file, fileName) =>
+        set({
+          currentFile: url,
+          currentVideoFile: file,
+          videoFileName: fileName,
+          annotations: [],
+          maskImage: null,
+          firstFrameUrl: null,
+          videoDimensions: null,
+          taskId: null,
+          trackingStatus: "idle",
+          trackingProgress: null,
+        }),
+
+      setCurrentVideoFile: (file) => set({ currentVideoFile: file }),
+      setFirstFrameUrl: (url) => set({ firstFrameUrl: url }),
+      setVideoDimensions: (dims) => set({ videoDimensions: dims }),
+      setVideoFileName: (name) => set({ videoFileName: name }),
+
+      addAnnotation: (ann) =>
+        set((state) => {
+          const color =
+            ANNOTATION_COLORS[
+              state.labels.indexOf(state.selectedLabel) %
+                ANNOTATION_COLORS.length
+            ];
+          return {
+            annotations: [...state.annotations, { ...ann, color }],
+            annotationType: state.annotationType ?? ann.type,
+          };
+        }),
+
+      updateAnnotation: (id, data) =>
+        set((state) => ({
+          annotations: state.annotations.map((a) =>
+            a.id === id ? { ...a, ...data } : a,
+          ),
+        })),
+
+      removeAnnotation: (id) =>
+        set((state) => ({
+          annotations: state.annotations.filter((a) => a.id !== id),
+        })),
+
+      removeAnnotationsByFrame: (frameId) =>
+        set((state) => ({
+          annotations: state.annotations.filter((a) => a.frameId !== frameId),
+        })),
+
+      removeAnnotationsByLabel: (label) =>
+        set((state) => ({
+          annotations: state.annotations.filter((a) => a.label !== label),
+        })),
+
+      addLabel: (label) => {
+        const state = get();
+        if (state.labels.includes(label) || state.labels.length >= MAX_LABELS)
+          return false;
+        set((s) => ({ labels: [...s.labels, label], selectedLabel: label }));
+        return true;
+      },
+
+      removeLabel: (label) =>
+        set((state) => {
+          const newLabels = state.labels.filter((l) => l !== label);
+          return {
+            labels: newLabels,
+            annotations: state.annotations.filter((a) => a.label !== label),
+            selectedLabel:
+              state.selectedLabel === label
+                ? (newLabels[0] ?? "")
+                : state.selectedLabel,
+          };
+        }),
+
+      setSelectedLabel: (label) => set({ selectedLabel: label }),
+      setAnnotationType: (type) => set({ annotationType: type }),
+      setSkipDeleteConfirm: (skip) => set({ skipDeleteConfirm: skip }),
+      setMaskImage: (url) => set({ maskImage: url }),
+      setTaskId: (id) => set({ taskId: id }),
+      setTrackingStatus: (status) => set({ trackingStatus: status }),
+      setTrackingError: (err) => set({ trackingError: err }),
+      setTrackingProgress: (progress) => set({ trackingProgress: progress }),
+
+      reset: () =>
+        set({
+          currentFile: null,
+          currentVideoFile: null,
+          firstFrameUrl: null,
+          videoDimensions: null,
+          annotations: [],
+          videoFileName: null,
+          taskId: null,
+          trackingStatus: "idle",
+          maskImage: null,
+          trackingProgress: null,
+        }),
     }),
-}));
+    {
+      name: "annotation-store",
+      partialize: (state) => ({
+        firstFrameUrl: state.firstFrameUrl,
+        videoDimensions: state.videoDimensions,
+        videoFileName: state.videoFileName,
+        annotations: state.annotations,
+        labels: state.labels,
+        selectedLabel: state.selectedLabel,
+        annotationType: state.annotationType,
+        skipDeleteConfirm: state.skipDeleteConfirm,
+        taskId: state.taskId,
+        trackingStatus: state.trackingStatus,
+        trackingProgress: state.trackingProgress,
+      }),
+    },
+  ),
+);
