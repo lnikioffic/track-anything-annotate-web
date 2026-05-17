@@ -43,7 +43,7 @@ RUN uv sync \
 # Copy remaining source code
 COPY workers/tracker/ ./workers/tracker/
 
-FROM nvidia/cuda:12.6.3-runtime-ubuntu24.04 AS runtime
+FROM nvidia/cuda:12.8.2-base-ubuntu24.04 AS runtime
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
