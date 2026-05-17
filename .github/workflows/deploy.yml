@@ -41,7 +41,7 @@ jobs:
                   push: true
                   tags: lniki/track-anything-preview-worker:latest
 
-            - name: Build and push Tracker
+            - name: Build and push Tracker CPU
               uses: docker/build-push-action@v4
               with:
                   context: ./
@@ -49,7 +49,7 @@ jobs:
                   push: true
                   tags: lniki/track-anything-tracker-worker-cpu:latest
 
-            - name: Build and push Tracker
+            - name: Build and push Tracker GPU
               uses: docker/build-push-action@v4
               with:
                   context: ./
