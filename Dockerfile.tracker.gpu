@@ -43,7 +43,7 @@ RUN uv sync \
 # Copy remaining source code
 COPY workers/tracker/ ./workers/tracker/
 
-FROM nvidia/cuda:12.8.2-base-ubuntu24.04 AS runtime
+FROM nvidia/cuda:12.8.2-runtime-ubuntu24.04 AS runtime
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
@@ -56,8 +56,7 @@ RUN apt-get update \
 
 ENV PATH="/app/workers/tracker/.venv/bin:$PATH" \
     PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1 \
-    CUDA_VISIBLE_DEVICES=0
+    PYTHONUNBUFFERED=1
 
 WORKDIR /app
 
