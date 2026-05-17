@@ -1,0 +1,107 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+    name: tracker-worker-gpu
+    labels:
+        app: tracker-worker
+        compute: gpu
+spec:
+    replicas: 1
+    selector:
+        matchLabels:
+            app: tracker-worker
+            compute: gpu
+    template:
+        metadata:
+            labels:
+                app: tracker-worker
+                compute: gpu
+        spec:
+            # Node selector for GPU nodes
+            nodeSelector:
+                accelerator: gpu
+            # Tolerations for GPU node taints
+            tolerations:
+                - key: nvidia.com/gpu
+                  operator: Exists
+                  effect: NoSchedule
+                - key: accelerator
+                  operator: Equal
+                  value: gpu
+                  effect: NoSchedule
+            containers:
+                - name: tracker-worker
+                  image: lniki/track-anything-tracker-worker:latest
+                  imagePullPolicy: Always
+                  env:
+                      - name: DEVICE
+                        value: cuda
+                      - name: CUDA_VISIBLE_DEVICES
+                        value: "0"
+                      - name: YANDEX_DISK_TOKEN
+                        valueFrom:
+                            secretKeyRef:
+                                name: tracker-secrets
+                                key: yandex-disk-token
+                      - name: RABBITMQ_URL
+                        valueFrom:
+                            configMapKeyRef:
+                                name: tracker-config
+                                key: rabbitmq-url
+                      - name: REDIS_URL
+                        valueFrom:
+                            configMapKeyRef:
+                                name: tracker-config
+                                key: redis-url
+                  resources:
+                      requests:
+                          memory: "4Gi"
+                          cpu: "2"
+                          nvidia.com/gpu: 1
+                      limits:
+                          nvidia.com/gpu: 1
+                  livenessProbe:
+                      exec:
+                          command:
+                              - sh
+                              - -c
+                              - "ps aux | grep tracker"
+                      initialDelaySeconds: 30
+                      periodSeconds: 60
+                      timeoutSeconds: 10
+                      failureThreshold: 3
+                  volumeMounts:
+                      - name: checkpoint-cache
+                        mountPath: /app/ml_core/checkpoints
+                        readOnly: true
+            volumes:
+                - name: checkpoint-cache
+                  configMap:
+                      name: tracker-checkpoints
+---
+apiVersion: v1
+kind: Service
+metadata:
+    name: tracker-worker-gpu
+    labels:
+        app: tracker-worker
+        compute: gpu
+spec:
+    type: ClusterIP
+    selector:
+        app: tracker-worker
+        compute: gpu
+    ports:
+        - name: metrics
+          port: 8000
+          targetPort: 8000
+          protocol: TCP
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+    name: tracker-config
+data:
+    yandex-disk-token: ""
+    rabbitmq-url: "amqp://guest:guest@host.docker.internal:5672/"
+    redis-url: "redis://host.docker.internal:6379"

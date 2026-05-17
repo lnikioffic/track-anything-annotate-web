@@ -1,0 +1,13 @@
+target
+Dockerfile
+.dockerignore
+.git
+.gitignore
+.env.example
+.github
+*.md
+.DS_Store
+.vscode
+.idea
+docs
+scripts

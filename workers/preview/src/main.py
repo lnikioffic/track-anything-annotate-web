@@ -1,77 +1,105 @@
 import json
+import os
+import tempfile
+from contextlib import asynccontextmanager
 from typing import Annotated
 
 import cv2
-from fastapi import FastAPI, File, Form, Response, UploadFile
+import numpy as np
+from fastapi import FastAPI, File, Form, Response, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
-from ml_core import (
-    Sam2ModelSize,
-    SamController,
-    SegmentationService,
-    Segmenter,
-)
 from ml_core.tools.annotations_prompts_types import AnnotationItem
-from ml_core.Tracker.XMem2.inference.interact.interactive_utils import overlay_davis
+from ml_core.Tracker.XMem2.inference.interact.interactive_utils import (
+    overlay_davis,
+)
+from pydantic import ValidationError
 
+from src.state import AppState
 from src.utils import get_info_prompt
 
-app = FastAPI()
+state = AppState()
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    yield
+    state.segmenter.segmenter_controller.reset_image()
+
+
+app = FastAPI(lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=['*'],
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=['*'],
+    allow_headers=['*'],
 )
 
 
-@app.post("/process")
-def process_media(
-    file: Annotated[UploadFile, File()],
-    metadata: Annotated[str, Form()],
-) -> Response:
-    allowed_types = [
-        "image/jpeg",
-        "image/png",
-        "video/mp4",
-    ]
-    if file.content_type and file.content_type not in allowed_types:
-        raise ValueError(f"Неподдерживаемый тип файла: {file.content_type}")
+@app.get('/health', status_code=status.HTTP_200_OK)
+async def health():
+    return {'status': 'ok'}
 
-    metadata = json.loads(metadata)
-    data = list(map(lambda x: AnnotationItem(**x), metadata))
-    class_names, annotations_info = get_info_prompt(data)
 
-    import tempfile
+@app.post('/frame')
+async def extract_frame(file: Annotated[UploadFile, File()]) -> Response:
+    contents = await file.read()
+    suffix = os.path.splitext(file.filename or '')[1].lower() or '.mp4'
+    if suffix not in ('.mp4', '.avi', '.mov', '.mkv', '.webm'):
+        suffix = '.mp4'
 
-    content = file.file.read()
-
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp:
-        tmp.write(content)
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+        tmp.write(contents)
         tmp_path = tmp.name
-    video = cv2.VideoCapture(tmp_path)
-    ret, frame = video.read()
-    video.release()
 
-    segmenter = Segmenter(Sam2ModelSize.Large, "cpu")
-    segmenter_controller = SamController(segmenter)
-    segmenter_service = SegmentationService(segmenter_controller)
-    segmenter_service.sam_controller.set_image(frame)
-    mask = segmenter_service.segment_objects(annotations_info)
+    try:
+        cap = cv2.VideoCapture(tmp_path)
+        ret, frame = cap.read()
+        cap.release()
+        if not ret or frame is None:
+            return Response(content='Cannot extract frame from video', status_code=400)
+        success, encoded = cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), 95])
+        if not success:
+            return Response(content='Failed to encode frame', status_code=500)
+        return Response(content=encoded.tobytes(), media_type='image/jpeg')
+    finally:
+        os.unlink(tmp_path)
 
-    overley_mask = overlay_davis(frame, mask)
+
+@app.post('/preview')
+async def preview(
+    file: Annotated[UploadFile, File()],
+    json_data: Annotated[str, Form()],
+) -> Response:
+    allowed_types = ['image/jpeg', 'image/png']
+    if file.content_type not in allowed_types:
+        return Response(content='Unsupported media type', status_code=415)
+
+    try:
+        metadata = json.loads(json_data)
+        items: list[AnnotationItem] = [AnnotationItem(**x) for x in metadata]
+    except (json.JSONDecodeError, ValidationError) as e:
+        return Response(content=f'Invalid JSON: {e}', status_code=400)
+
+    contents = await file.read()
+    nparr = np.frombuffer(contents, np.uint8)
+    frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+
+    if frame is None:
+        return Response(content='Failed to decode image', status_code=400)
+    _, annotations_info = get_info_prompt(items)
+
+    mask = await state.segmenter.process_image(frame, annotations_info)
+
+    # Конвертируем маску в правильный тип для overlay_davis
+    mask = mask.astype(np.int32)
+
+    overlay_mask = overlay_davis(frame, mask)
     # cv2.imwrite("test_mask_result.png", overley_mask)
-    _, encoded = cv2.imencode(".jpg", overley_mask)
-    print(data[0]["prompt"])
-    return Response(content=encoded.tobytes(), media_type="image/jpeg")
+    success, encoded = cv2.imencode('.jpg', overlay_mask)
 
-
-# @app.post("/process_json")
-# async def process(
-#     metadata: list[AnnotationItem],
-# ):
-#     """Обработка изображения или видео с метаданными."""
-
-
-#     print(metadata)
+    if not success:
+        return Response(content='Failed to encode result', status_code=500)
+    print(items[0]['prompt'])
+    return Response(content=encoded.tobytes(), media_type='image/jpeg')

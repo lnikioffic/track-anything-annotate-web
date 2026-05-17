@@ -1,0 +1,14 @@
+FROM node:20-alpine AS base
+
+WORKDIR /app
+
+COPY package*.json ./
+
+RUN npm install
+
+COPY . .
+
+EXPOSE 5173
+
+# Запуск Vite dev server с хостом 0.0.0.0 для доступа извне
+CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0"]

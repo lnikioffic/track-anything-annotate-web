@@ -1,0 +1,10 @@
+[workspace]
+resolver = "2"
+members = ["networking", "storage-core", "yandex_disk"]
+
+[workspace.dependencies]
+uuid = { version = "1", features = ["v4", "serde"] }
+anyhow = "1.0.100"
+async-trait = "0.1.89"
+bytes = "1.10.1"
+serde = { version = "1.0.228", features = ["derive"] }

@@ -1,0 +1,71 @@
+FROM nvidia/cuda:12.8.2-base-ubuntu24.04 AS builder
+
+# Install Python and uv
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends software-properties-common && \
+    add-apt-repository ppa:deadsnakes/ppa && \
+    apt-get update && \
+    apt-get install -y --no-install-recommends \
+        python3.14 \
+        python3.14-venv \
+        python3.14-dev \
+        libglib2.0-0 \
+        ca-certificates && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/* && \
+    rm -rf /usr/local/cuda/doc /usr/local/cuda/samples
+
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+
+ENV UV_PYTHON_DOWNLOADS=0 \
+    UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy \
+    PYTHONUNBUFFERED=1
+
+WORKDIR /app
+
+# Copy all dependency definitions
+COPY workers/tracker/pyproject.toml workers/tracker/uv.lock ./workers/tracker/
+COPY ml_core/ ./ml_core/
+
+# Install dependencies with GPU extras
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync \
+    --frozen \
+    --no-dev \
+    --extra gpu \
+    --project workers/tracker
+
+# Copy remaining source code
+COPY workers/tracker/ ./workers/tracker/
+
+FROM nvidia/cuda:12.8.2-runtime-ubuntu24.04 AS runtime
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        software-properties-common && \
+    add-apt-repository ppa:deadsnakes/ppa && \
+    apt-get update && \
+    apt-get install -y --no-install-recommends \
+        python3.14 \
+        libglib2.0-0 \
+        ca-certificates && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/* && \
+    rm -rf /usr/local/cuda/doc /usr/local/cuda/samples && \
+    useradd -u 1001 -g 0 -m appuser
+
+ENV PATH="/app/workers/tracker/.venv/bin:$PATH" \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+WORKDIR /app
+
+# Copy entire app structure with venv from builder
+COPY --from=builder --chown=appuser:root /app /app
+
+WORKDIR /app/workers/tracker
+
+USER appuser
+
+CMD ["faststream", "run", "src.main:app"]

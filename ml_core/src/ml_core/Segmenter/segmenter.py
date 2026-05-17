@@ -12,7 +12,7 @@ from ml_core.config import DEVICE, ML_CORE_ROOT
 from ml_core.tools.converter import colored_mask_to_indices, merge_masks
 from ml_core.tools.mask_display import visualize_unique_mask
 
-CHECKPOINTS_ROOT = ML_CORE_ROOT.parent.parent / "checkpoints"
+CHECKPOINTS_ROOT = ML_CORE_ROOT.parent.parent / 'checkpoints'
 
 
 @dataclass
@@ -23,16 +23,20 @@ class PathModelsSam2:
 
 class Sam2ModelSize(Enum):
     Tiny = PathModelsSam2(
-        pt=CHECKPOINTS_ROOT / "sam2.1_hiera_tiny.pt",
-        yaml="configs/sam2.1/sam2.1_hiera_t.yaml",
+        pt=CHECKPOINTS_ROOT / 'sam2.1_hiera_tiny.pt',
+        yaml='configs/sam2.1/sam2.1_hiera_t.yaml',
     )
     Small = PathModelsSam2(
-        pt=CHECKPOINTS_ROOT / "sam2.1_hiera_small.pt",
-        yaml="configs/sam2.1/sam2.1_hiera_s.yaml",
+        pt=CHECKPOINTS_ROOT / 'sam2.1_hiera_small.pt',
+        yaml='configs/sam2.1/sam2.1_hiera_s.yaml',
+    )
+    BasePlus = PathModelsSam2(
+        pt=CHECKPOINTS_ROOT / 'sam2.1_hiera_base_plus.pt',
+        yaml='configs/sam2.1/sam2.1_hiera_b+.yaml',
     )
     Large = PathModelsSam2(
-        pt=CHECKPOINTS_ROOT / "sam2.1_hiera_large.pt",
-        yaml="configs/sam2.1/sam2.1_hiera_l.yaml",
+        pt=CHECKPOINTS_ROOT / 'sam2.1_hiera_large.pt',
+        yaml='configs/sam2.1/sam2.1_hiera_l.yaml',
     )
 
 
@@ -51,7 +55,7 @@ class Segmenter:
     @torch.no_grad()
     def set_image(self, image: np.ndarray) -> None:
         if self.embedded:
-            raise RuntimeError("Image already set. Call reset_image() first.")
+            raise RuntimeError('Image already set. Call reset_image() first.')
 
         self.original_image = image
         self.predictor.set_image(image)
@@ -67,45 +71,47 @@ class Segmenter:
     def predict(
         self,
         prompt: dict,
-        mode: str = "point",
+        mode: str = 'point',
         multimask: bool = True,
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         if not self.embedded:
-            raise RuntimeError("Image not set. Call set_image() first.")
+            raise RuntimeError('Image not set. Call set_image() first.')
 
-        if mode not in ["point", "box", "both"]:
-            raise RuntimeError("mode can be point, box or both")
+        if mode not in ['point', 'box', 'both']:
+            raise RuntimeError('mode can be point, box or both')
 
-        if mode == "point":
+        if mode == 'point':
             masks, scores, logits = self.predictor.predict(
-                point_coords=prompt["point_coords"],
-                point_labels=prompt["point_labels"],
+                point_coords=prompt['point_coords'],
+                point_labels=prompt['point_labels'],
                 multimask_output=multimask,
             )
-        elif mode == "box":
+        elif mode == 'box':
             masks, scores, logits = self.predictor.predict(
-                box=prompt["boxes"],
+                box=prompt['boxes'],
                 multimask_output=multimask,
             )
-        elif mode == "both":
+        elif mode == 'both':
             masks, scores, logits = self.predictor.predict(
-                point_coords=prompt["point_coords"],
-                point_labels=prompt["point_labels"],
-                box=prompt["boxes"],
+                point_coords=prompt['point_coords'],
+                point_labels=prompt['point_labels'],
+                box=prompt['boxes'],
                 multimask_output=multimask,
             )
         else:
-            raise ValueError("Invalid mode")
+            raise ValueError('Invalid mode')
 
         return masks, scores, logits
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     # uv run python -m Segmenter.segmenter
-    from ml_core.Tracker.XMem2.inference.interact.interactive_utils import overlay_davis
+    from ml_core.Tracker.XMem2.inference.interact.interactive_utils import (
+        overlay_davis,
+    )
 
-    path = "assets/truck.jpg"
-    path = "assets/video.mp4"
+    path = 'assets/truck.jpg'
+    path = 'assets/video.mp4'
     video = cv2.VideoCapture(path)
     ret, frame = video.read()
     frame_cop = frame.copy()
@@ -115,9 +121,9 @@ if __name__ == "__main__":
     points = [[531, 230], [45, 321], [226, 360], [194, 313]]
 
     prompts = {
-        "mode": "point",
-        "point_coords": [[531, 230], [45, 321], [[226, 360], [194, 313]]],
-        "point_labels": [1, 1, [1, 0]],
+        'mode': 'point',
+        'point_coords': [[531, 230], [45, 321], [[226, 360], [194, 313]]],
+        'point_labels': [1, 1, [1, 0]],
     }
 
     # prompts = {
@@ -159,24 +165,30 @@ if __name__ == "__main__":
     seg.set_image(frame)
 
     masks_list = []
-    if prompts["mode"] == "point":
-        for point_c, point_l in zip(prompts["point_coords"], prompts["point_labels"]):
+    if prompts['mode'] == 'point':
+        for point_c, point_l in zip(
+            prompts['point_coords'], prompts['point_labels']
+        ):
             prompt = {
-                "point_coords": np.array([point_c]),
-                "point_labels": np.array([point_l]),
-                "boxes": None,
+                'point_coords': np.array([point_c]),
+                'point_labels': np.array([point_l]),
+                'boxes': None,
             }
-            masks, scores, logits = seg.predict(prompt, prompts["mode"])
+            masks, scores, logits = seg.predict(prompt, prompts['mode'])
             masks_list.append(masks[np.argmax(scores)])
-    elif prompts["mode"] == "box":
-        for box in prompts["boxes"]:
+    elif prompts['mode'] == 'box':
+        for box in prompts['boxes']:
             prompt = {
-                "boxes": np.array([box]),
+                'boxes': np.array([box]),
             }
-            masks, scores, logits = seg.predict(prompt, prompts["mode"], multimask=True)
+            masks, scores, logits = seg.predict(
+                prompt, prompts['mode'], multimask=True
+            )
             masks_list.append(masks[np.argmax(scores)])
     else:
-        masks, scores, logits = seg.predict(prompts, prompts["mode"], multimask=False)
+        masks, scores, logits = seg.predict(
+            prompts, prompts['mode'], multimask=False
+        )
         masks_list = masks
         print(len(masks))
 
@@ -192,12 +204,12 @@ if __name__ == "__main__":
     mask, unique_mask = merge_masks(masks_list)
 
     mask_indices, colors = colored_mask_to_indices(unique_mask)
-    print("Классы:", np.unique(mask_indices))
+    print('Классы:', np.unique(mask_indices))
 
     f = overlay_davis(frame, mask_indices)
     f = cv2.cvtColor(f, cv2.COLOR_BGR2RGB)
     mask = visualize_unique_mask(mask_indices)
-    cv2.imshow("mask", mask)
-    cv2.imshow("overlay", f)
+    cv2.imshow('mask', mask)
+    cv2.imshow('overlay', f)
     cv2.waitKey(0)
     cv2.destroyAllWindows()

@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#3B82F6"/>
+      <stop offset="100%" stop-color="#8B5CF6"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Фон -->
+  <rect width="100" height="100" rx="20" fill="url(#bg)"/>
+
+  <!-- Видеокамера / экран -->
+  <rect x="20" y="30" width="50" height="35" rx="3" fill="white" opacity="0.9"/>
+
+  <!-- Рамка детекции (bounding box) -->
+  <rect x="35" y="40" width="20" height="15" rx="1" fill="none" stroke="#EF4444" stroke-width="2.5"/>
+
+  <!-- Точка детекции -->
+  <circle cx="60" cy="55" r="4" fill="#10B981"/>
+
+  <!-- Кнопка play -->
+  <polygon points="75,42 75,58 88,50" fill="white" opacity="0.8"/>
+</svg>
