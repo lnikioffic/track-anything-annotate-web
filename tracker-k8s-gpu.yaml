@@ -31,43 +31,41 @@ spec:
                   effect: NoSchedule
             containers:
                 - name: tracker-worker
-                  image: lniki/track-anything-tracker-worker:gpu
+                  image: lniki/track-anything-tracker-worker:latest
                   imagePullPolicy: Always
                   env:
                       - name: DEVICE
                         value: cuda
                       - name: CUDA_VISIBLE_DEVICES
                         value: "0"
+                      - name: YANDEX_DISK_TOKEN
+                        valueFrom:
+                            secretKeyRef:
+                                name: tracker-secrets
+                                key: yandex-disk-token
                       - name: RABBITMQ_URL
                         valueFrom:
                             configMapKeyRef:
                                 name: tracker-config
                                 key: rabbitmq-url
-                      - name: VALKEY_URL
+                      - name: REDIS_URL
                         valueFrom:
                             configMapKeyRef:
                                 name: tracker-config
-                                key: valkey-url
+                                key: redis-url
                   resources:
                       requests:
                           memory: "4Gi"
                           cpu: "2"
-                          nvidia.com/gpu: "1"
+                          nvidia.com/gpu: 1
                       limits:
-                          memory: "8Gi"
-                          cpu: "4"
-                          nvidia.com/gpu: "1"
+                          nvidia.com/gpu: 1
                   livenessProbe:
                       exec:
                           command:
-                              - python3
+                              - sh
                               - -c
-                              - |
-                                  import torch
-                                  if torch.cuda.is_available():
-                                    print(f'CUDA available: {torch.cuda.get_device_name(0)}')
-                                  else:
-                                    exit(1)
+                              - "ps aux | grep tracker"
                       initialDelaySeconds: 30
                       periodSeconds: 60
                       timeoutSeconds: 10
@@ -104,5 +102,6 @@ kind: ConfigMap
 metadata:
     name: tracker-config
 data:
-    rabbitmq-url: "amqp://guest:guest@rabbitmq:5672/"
-    valkey-url: "redis://valkey:6379"
+    yandex-disk-token: ""
+    rabbitmq-url: "amqp://guest:guest@host.docker.internal:5672/"
+    redis-url: "redis://host.docker.internal:6379"

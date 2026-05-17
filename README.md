@@ -5,7 +5,9 @@ This is the web version of the video annotation tool - "Track Anything Annotate"
 ```bash
 docker compose -f .\docker-compose.prod.yml up
 
-docker compose -f .\docker-compose.tracker.yml up
+docker compose -f .\docker-compose.tracker-cpu.yml up
+# or
+docker compose -f .\docker-compose.tracker-gpu.yml up
 ```
 ## Архитектура
 

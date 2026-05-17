@@ -29,27 +29,31 @@ COPY workers/tracker/pyproject.toml workers/tracker/uv.lock ./workers/tracker/
 COPY ml_core/ ./ml_core/
 
 # Install dependencies with GPU extras
-RUN uv sync \
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync \
     --frozen \
     --no-dev \
     --extra gpu \
-    --project workers/tracker && \
-    find /app -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true && \
-    find /app -type d -name "*.dist-info" -exec rm -rf {} + 2>/dev/null || true
+    --project workers/tracker
 
 # Copy remaining source code
 COPY workers/tracker/ ./workers/tracker/
 
 FROM nvidia/cuda:12.8.2-runtime-ubuntu24.04 AS runtime
 
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        software-properties-common && \
+    add-apt-repository ppa:deadsnakes/ppa && \
+    apt-get update && \
+    apt-get install -y --no-install-recommends \
+        python3.14 \
         libglib2.0-0 \
-        ca-certificates \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/* \
-    && rm -rf /usr/local/cuda/doc /usr/local/cuda/samples \
-    && useradd -u 1001 -g 0 -m appuser
+        ca-certificates && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/* && \
+    rm -rf /usr/local/cuda/doc /usr/local/cuda/samples && \
+    useradd -u 1001 -g 0 -m appuser
 
 ENV PATH="/app/workers/tracker/.venv/bin:$PATH" \
     PYTHONDONTWRITEBYTECODE=1 \
