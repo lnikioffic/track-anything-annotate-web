@@ -46,4 +46,12 @@ jobs:
                   context: ./
                   file: ./Dockerfile.tracker
                   push: true
-                  tags: lniki/track-anything-tracker-worker:latest
+                  tags: lniki/track-anything-tracker-worker-cpu:latest
+
+            - name: Build and push Tracker
+              uses: docker/build-push-action@v4
+              with:
+                  context: ./
+                  file: ./Dockerfile.tracker.gpu
+                  push: true
+                  tags: lniki/track-anything-tracker-worker-gpu:latest
