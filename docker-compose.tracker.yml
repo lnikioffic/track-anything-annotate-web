@@ -1,0 +1,13 @@
+services:
+    tracker:
+        # image: lniki/track-anything-tracker-worker-cpu:latest
+        # image: lniki/track-anything-tracker-worker-gpu:latest
+        build:
+            context: .
+            dockerfile: Dockerfile.tracker.gpu
+        environment:
+            - YANDEX_DISK_TOKEN=${YANDEX_DISK_TOKEN}
+            - REDIS_URL=redis://192.168.20.1:6379
+            - RABBITMQ_URL=amqp://guest:guest@192.168.20.1:5672/%2f
+        volumes:
+            - ./ml_core/checkpoints:/app/ml_core/checkpoints:ro

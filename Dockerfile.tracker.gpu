@@ -24,11 +24,8 @@ ENV UV_PYTHON_DOWNLOADS=0 \
 
 WORKDIR /app
 
-# Copy dependency definitions
-COPY ml_core/pyproject.toml ml_core/uv.lock ./ml_core/
+# Copy all dependency definitions
 COPY workers/tracker/pyproject.toml workers/tracker/uv.lock ./workers/tracker/
-
-# Copy source code before sync (ml-core is editable)
 COPY ml_core/ ./ml_core/
 
 # Install dependencies with GPU extras

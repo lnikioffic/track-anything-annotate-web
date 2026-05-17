@@ -1,6 +1,12 @@
 # track-anything-annotate-web
 This is the web version of the video annotation tool - "Track Anything Annotate"
 
+## Запуск
+```bash
+docker compose -f .\docker-compose.prod.yml up
+
+docker compose -f .\docker-compose.tracker.yml up
+```
 ## Архитектура
 
 ```
